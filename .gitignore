@@ -1,0 +1,15 @@
+# 開發期間的 smoke test 殘留檔（不進版控）
+data/raw/_smoke*
+data/_smoke*
+web/rrg_data.sample.js
+web/rrg_data.js
+
+# Python
+__pycache__/
+*.pyc
+
+# Streamlit 本機執行殘留
+.streamlit/secrets.toml
+
+# 注意：data/raw/ 與 data/sector_indices.csv 為 streamlit_app.py 的資料依賴，
+# 需進版控，不在此排除。

@@ -1,0 +1,947 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>台股產業輪動雷達 RRG</title>
+<style>
+  :root{
+    /* ---- 黃金時刻 × 太陽龐克 調色盤（皆通過 WCAG AA 對比驗證） ---- */
+    --bg-gold: #fcefd6;
+    --bg-mist: #fbf6ec;
+    --bg-green: #e9f1e3;
+    --panel: rgba(255, 251, 242, 0.55);
+    --panel-strong: rgba(255, 251, 242, 0.78);
+    --panel2: rgba(255, 248, 233, 0.65);
+    --border: rgba(201, 150, 60, 0.38);
+    --border-soft: rgba(201, 150, 60, 0.20);
+    --text: #2e2418;
+    --text-dim: #6b5a47;
+    --accent: #8f5a00;
+    --accent-soft: #d9a544;
+    --leading: #8f5a00;    /* 金琥珀 Leading */
+    --weakening: #ae4416;  /* 夕陽橘 Weakening */
+    --lagging: #5b6478;    /* 霧灰 Lagging */
+    --improving: #256b3a;  /* 葉綠 Improving */
+    --glow-gold: rgba(217, 165, 68, 0.55);
+    --shadow-gold: rgba(180, 130, 40, 0.28);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    color: var(--text);
+    font-family: "Microsoft JhengHei", "PingFang TC", "Segoe UI", sans-serif;
+    height: 100%;
+    background:
+      radial-gradient(120% 90% at 88% 6%, rgba(255,255,255,0.65), transparent 55%),
+      linear-gradient(150deg, var(--bg-gold) 0%, var(--bg-mist) 48%, var(--bg-green) 100%);
+    background-attachment: fixed;
+  }
+  /* 廷得耳效應：晨霧中的斜射光束 */
+  body::before {
+    content: "";
+    position: fixed; inset: 0;
+    background: repeating-linear-gradient(
+      112deg,
+      rgba(255,255,255,0.32) 0px,
+      rgba(255,255,255,0.32) 26px,
+      rgba(255,255,255,0) 26px,
+      rgba(255,255,255,0) 150px
+    );
+    mix-blend-mode: soft-light;
+    opacity: .8;
+    pointer-events: none;
+    z-index: 0;
+  }
+  /* 晨霧暈染 */
+  body::after {
+    content: "";
+    position: fixed; inset: 0;
+    background:
+      radial-gradient(60% 50% at 92% 2%, rgba(255,246,222,0.9), transparent 60%),
+      radial-gradient(50% 45% at 4% 96%, rgba(210,235,210,0.55), transparent 60%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .deco-vine {
+    position: fixed;
+    pointer-events: none;
+    z-index: 0;
+    opacity: .55;
+    filter: drop-shadow(0 2px 6px rgba(120,90,30,0.12));
+  }
+  .deco-vine--tl { top: -18px; left: -18px; width: 168px; height: 168px; }
+  .deco-vine--br { bottom: -22px; right: -22px; width: 200px; height: 200px; transform: scaleX(-1); }
+
+  #dataMissing {
+    display: none;
+    position: fixed; inset: 0;
+    align-items: center; justify-content: center;
+    flex-direction: column;
+    text-align: center;
+    padding: 24px;
+    z-index: 999;
+  }
+  #dataMissing.show { display: flex; }
+  #dataMissing .glass-card {
+    position: relative;
+    max-width: 560px;
+    padding: 32px 36px;
+    background: linear-gradient(160deg, var(--panel-strong), var(--panel2));
+    backdrop-filter: blur(18px) saturate(1.2);
+    -webkit-backdrop-filter: blur(18px) saturate(1.2);
+    border: 1px solid var(--border);
+    border-radius: 30px 14px 34px 12px;
+    box-shadow: 0 12px 40px var(--shadow-gold), inset 0 1px 0 rgba(255,255,255,0.6);
+  }
+  #dataMissing h2 { color: var(--weakening); margin: 0 0 10px; font-size: 20px; }
+  #dataMissing p { color: var(--text-dim); max-width: 520px; line-height: 1.8; margin: 0; }
+  #dataMissing code {
+    background: rgba(143,90,0,0.12); padding: 2px 7px; border-radius: 6px; color: var(--accent);
+    font-weight: 600;
+  }
+
+  #app { display: none; height: 100vh; flex-direction: column; position: relative; z-index: 1; padding: 12px; gap: 12px; }
+  #app.show { display: flex; }
+
+  header {
+    padding: 12px 20px;
+    display: flex; align-items: center; gap: 16px;
+    flex-wrap: wrap;
+    background: linear-gradient(135deg, var(--panel-strong), var(--panel2));
+    backdrop-filter: blur(16px) saturate(1.15);
+    -webkit-backdrop-filter: blur(16px) saturate(1.15);
+    border: 1px solid var(--border);
+    border-radius: 26px 26px 34px 16px;
+    box-shadow: 0 8px 28px var(--shadow-gold), inset 0 1px 0 rgba(255,255,255,0.55);
+  }
+  header h1 {
+    font-size: 16px; margin: 0; white-space: nowrap;
+    color: var(--text);
+    letter-spacing: .02em;
+  }
+  header .asof { color: var(--text-dim); font-size: 12px; }
+
+  .field { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+  .field label { color: var(--text-dim); }
+  select, button {
+    background: linear-gradient(160deg, rgba(255,255,255,0.75), rgba(250,232,190,0.55));
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 5px 14px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: box-shadow .18s ease, border-color .18s ease, transform .18s ease;
+  }
+  select:hover, button:hover:not(:disabled) {
+    border-color: var(--accent-soft);
+    box-shadow: 0 0 0 3px var(--glow-gold);
+    transform: translateY(-1px);
+  }
+  button.active {
+    background: linear-gradient(160deg, #caa053, var(--accent));
+    color: #fffaf0;
+    border-color: var(--accent);
+    font-weight: 600;
+    box-shadow: 0 0 10px var(--glow-gold);
+  }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+
+  main {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+    gap: 12px;
+  }
+  #chartArea {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  #canvasWrap {
+    flex: 1;
+    position: relative;
+    min-height: 0;
+    background:
+      radial-gradient(130% 110% at 22% 8%, rgba(255,255,255,0.75), rgba(251,246,236,0.35)),
+      var(--panel);
+    backdrop-filter: blur(14px) saturate(1.1);
+    -webkit-backdrop-filter: blur(14px) saturate(1.1);
+    border: 1px solid var(--border);
+    border-radius: 30px 14px 34px 14px;
+    box-shadow: 0 10px 32px var(--shadow-gold), inset 0 1px 0 rgba(255,255,255,0.55);
+    overflow: hidden;
+  }
+  #rrgCanvas { display: block; width: 100%; height: 100%; }
+
+  #tooltip {
+    position: absolute;
+    pointer-events: none;
+    background: linear-gradient(160deg, rgba(255,253,246,0.92), rgba(255,244,214,0.85));
+    border: 1px solid var(--accent-soft);
+    border-radius: 12px 12px 12px 4px;
+    padding: 7px 12px;
+    font-size: 12px;
+    color: var(--text);
+    display: none;
+    white-space: nowrap;
+    z-index: 20;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.5) inset, 0 6px 20px rgba(180,130,40,0.35), 0 0 14px var(--glow-gold);
+  }
+  #tooltip .tt-name { font-weight: 700; margin-bottom: 2px; color: var(--accent); }
+  #tooltip .tt-val { color: var(--text-dim); }
+
+  #playerBar {
+    margin-top: 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    background: linear-gradient(135deg, var(--panel-strong), var(--panel2));
+    backdrop-filter: blur(16px) saturate(1.15);
+    -webkit-backdrop-filter: blur(16px) saturate(1.15);
+    border: 1px solid var(--border);
+    border-radius: 20px 30px 20px 30px;
+    box-shadow: 0 8px 26px var(--shadow-gold), inset 0 1px 0 rgba(255,255,255,0.55);
+    padding: 9px 14px;
+  }
+  #dateSlider { flex: 1; min-width: 160px; accent-color: var(--accent); }
+  #dateLabel { font-variant-numeric: tabular-nums; font-size: 13px; min-width: 90px; text-align: center; color: var(--text); }
+  .speedGroup button { padding: 4px 10px; }
+
+  aside {
+    width: 300px;
+    flex-shrink: 0;
+    background: linear-gradient(160deg, var(--panel-strong), var(--panel2));
+    backdrop-filter: blur(16px) saturate(1.15);
+    -webkit-backdrop-filter: blur(16px) saturate(1.15);
+    border: 1px solid var(--border);
+    border-radius: 14px 30px 16px 34px;
+    box-shadow: 0 8px 28px var(--shadow-gold), inset 0 1px 0 rgba(255,255,255,0.55);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+    position: relative;
+  }
+  #breakoutPanel {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  #breakoutPanel h3 {
+    margin: 0 0 8px; font-size: 13px; color: var(--weakening);
+    display: flex; align-items: center; gap: 6px;
+  }
+  #breakoutPanel h3::before { content: "⚡"; filter: drop-shadow(0 0 4px var(--glow-gold)); }
+  #breakoutList { display: flex; flex-wrap: wrap; gap: 6px; }
+  .breakout-chip {
+    background: linear-gradient(135deg, rgba(255,244,214,0.9), rgba(247,233,200,0.75));
+    border: 1px solid var(--weakening);
+    color: var(--weakening);
+    border-radius: 999px;
+    padding: 3px 11px;
+    font-size: 12px;
+    font-weight: 600;
+    box-shadow: 0 0 8px rgba(174,68,22,0.28);
+  }
+  #breakoutEmpty { color: var(--text-dim); font-size: 12px; }
+
+  #listHeader {
+    padding: 9px 14px;
+    border-bottom: 1px solid var(--border-soft);
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  }
+  #listHeader button { font-size: 12px; padding: 4px 10px; }
+  #groupList {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px 0;
+  }
+  .group-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 14px;
+    font-size: 13px;
+    cursor: pointer;
+    border-bottom: 1px solid rgba(180,130,40,0.08);
+    transition: background .15s ease;
+  }
+  .group-row:hover { background: rgba(255,244,214,0.55); }
+  .group-row.hidden-by-filter { display: none; }
+  .group-row.breakout-row { background: rgba(255,229,168,0.35); }
+  .group-row input[type=checkbox] { accent-color: var(--accent); cursor: pointer; }
+  .group-row .dot {
+    width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0;
+    background: var(--text-dim);
+    box-shadow: 0 0 4px rgba(0,0,0,0.15);
+  }
+  .group-row .name { flex: 1; color: var(--text); }
+  .group-row .badge {
+    font-size: 10px; color: var(--weakening); border: 1px solid var(--weakening);
+    border-radius: 4px; padding: 0 4px;
+    background: rgba(255,244,214,0.7);
+  }
+
+  #tailField { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+  #tailField input[type=range] { accent-color: var(--accent); }
+  #tailValue { min-width: 20px; text-align: right; color: var(--text-dim); }
+
+  ::-webkit-scrollbar { width: 8px; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--accent-soft); }
+</style>
+</head>
+<body>
+
+<!-- 太陽龐克裝飾：手繪藤蔓與葉片（純裝飾，不遮擋資料區） -->
+<svg class="deco-vine deco-vine--tl" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <path d="M2 6 C 30 20, 20 60, 55 70 C 90 80, 80 40, 110 30" fill="none" stroke="#256b3a" stroke-width="3" stroke-linecap="round" opacity="0.55"/>
+  <ellipse cx="18" cy="18" rx="13" ry="7" fill="#3f9457" opacity="0.5" transform="rotate(-35 18 18)"/>
+  <ellipse cx="46" cy="55" rx="15" ry="8" fill="#256b3a" opacity="0.45" transform="rotate(25 46 55)"/>
+  <ellipse cx="82" cy="42" rx="12" ry="6.5" fill="#3f9457" opacity="0.4" transform="rotate(-15 82 42)"/>
+  <circle cx="108" cy="28" r="4" fill="#d9a544" opacity="0.6"/>
+</svg>
+<svg class="deco-vine deco-vine--br" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <path d="M4 8 C 32 22, 22 62, 58 72 C 92 82, 84 42, 116 32" fill="none" stroke="#256b3a" stroke-width="3.4" stroke-linecap="round" opacity="0.5"/>
+  <ellipse cx="20" cy="20" rx="14" ry="7.5" fill="#3f9457" opacity="0.48" transform="rotate(-30 20 20)"/>
+  <ellipse cx="50" cy="58" rx="16" ry="8.5" fill="#256b3a" opacity="0.42" transform="rotate(28 50 58)"/>
+  <ellipse cx="86" cy="45" rx="13" ry="7" fill="#3f9457" opacity="0.38" transform="rotate(-18 86 45)"/>
+  <circle cx="112" cy="30" r="4.5" fill="#d9a544" opacity="0.55"/>
+</svg>
+
+<div id="dataMissing">
+  <div class="glass-card">
+    <h2>資料尚未產出</h2>
+    <p>
+      找不到有效的 RRG 資料。請確認 <code>web/rrg_data.js</code> 是否存在，
+      且已由資料管線產出完整內容（<code>window.RRG_DATA</code>）。<br>
+      本頁面僅負責視覺呈現，資料檔尚未就緒時暫不顯示圖表。
+    </p>
+  </div>
+</div>
+
+<div id="app">
+  <header>
+    <h1>台股產業輪動雷達 RRG</h1>
+    <span class="asof" id="asOfLabel"></span>
+    <div class="field">
+      <label for="benchmarkSelect">基準</label>
+      <select id="benchmarkSelect"></select>
+    </div>
+    <div class="field">
+      <label for="periodSelect">週期</label>
+      <select id="periodSelect"></select>
+    </div>
+    <div class="field">
+      <label for="rangeSelect">回放範圍</label>
+      <select id="rangeSelect">
+        <option value="21">1個月</option>
+        <option value="63">3個月</option>
+        <option value="126" selected>半年</option>
+        <option value="240">1年</option>
+      </select>
+    </div>
+    <div id="tailField">
+      <label for="tailSlider">尾巴長度</label>
+      <input type="range" id="tailSlider" min="5" max="60" value="10" step="1">
+      <span id="tailValue">10</span>
+    </div>
+  </header>
+
+  <main>
+    <div id="chartArea">
+      <div id="canvasWrap">
+        <canvas id="rrgCanvas"></canvas>
+        <div id="tooltip"><div class="tt-name"></div><div class="tt-val"></div></div>
+      </div>
+      <div id="playerBar">
+        <button id="playBtn" title="播放/暫停">▶ 播放</button>
+        <button id="resetBtn" title="重置到起點">⟲ 重置</button>
+        <div class="speedGroup">
+          <button id="speed1" class="active">1x</button>
+          <button id="speed2">2x</button>
+          <button id="speed4">4x</button>
+        </div>
+        <input type="range" id="dateSlider" min="0" max="0" value="0" step="1">
+        <span id="dateLabel">--</span>
+      </div>
+    </div>
+
+    <aside>
+      <div id="breakoutPanel">
+        <h3>剛轉強雷達（近5日 改善→領先）</h3>
+        <div id="breakoutList"></div>
+        <div id="breakoutEmpty">目前無族群符合</div>
+      </div>
+      <div id="listHeader">
+        <button id="selAllBtn">全選</button>
+        <button id="selNoneBtn">全不選</button>
+        <button id="selOnlyBtn">只看已選</button>
+      </div>
+      <div id="groupList"></div>
+    </aside>
+  </main>
+</div>
+
+<script src="rrg_data.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  // ---------- 資料驗證 ----------
+  function validateData(d) {
+    try {
+      if (!d || typeof d !== "object") return false;
+      if (!Array.isArray(d.dates) || d.dates.length === 0) return false;
+      if (!Array.isArray(d.benchmarks) || d.benchmarks.length === 0) return false;
+      if (!Array.isArray(d.periods) || d.periods.length === 0) return false;
+      if (!d.series || typeof d.series !== "object") return false;
+      for (const bm of d.benchmarks) {
+        const bmSeries = d.series[bm];
+        if (!bmSeries) continue;
+        for (const p of d.periods) {
+          const ps = bmSeries[p];
+          if (!ps) continue;
+          for (const g in ps) {
+            const arr = ps[g];
+            if (Array.isArray(arr) && arr.some((v) => v !== null && v !== undefined)) {
+              return true;
+            }
+          }
+        }
+      }
+      return false;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  const rawData = (typeof window.RRG_DATA !== "undefined") ? window.RRG_DATA : null;
+
+  if (!validateData(rawData)) {
+    document.getElementById("dataMissing").classList.add("show");
+    return;
+  }
+
+  document.getElementById("app").classList.add("show");
+
+  try {
+    init(rawData);
+  } catch (e) {
+    // 防止未捕捉例外洩漏到 console；改以畫面提示。
+    console.warn("RRG 初始化發生非預期錯誤，已攔截：", e && e.message);
+    document.getElementById("app").classList.remove("show");
+    const dm = document.getElementById("dataMissing");
+    dm.querySelector("p").innerHTML = "資料格式與預期不符，頁面無法呈現。請確認 <code>rrg_data.js</code> 內容是否符合資料契約。";
+    dm.classList.add("show");
+  }
+
+  // ================= 主邏輯 =================
+  function init(data) {
+    // 主色（同時作為文字／描邊色，皆通過 WCAG AA 對比驗證）
+    const QUADRANT_COLOR = { leading: "#8f5a00", weakening: "#ae4416", lagging: "#5b6478", improving: "#256b3a" };
+    // 光暈色（僅用於 shadowColor 發光效果，不承擔對比責任）
+    const QUADRANT_GLOW = { leading: "#f5c36b", weakening: "#f2946a", lagging: "#a8b3c6", improving: "#6fcb8a" };
+    const QUADRANT_LABEL = { leading: "領先 Leading", weakening: "弱化 Weakening", lagging: "落後 Lagging", improving: "改善 Improving" };
+
+    function quadrantOf(x, y) {
+      if (x >= 100 && y >= 100) return "leading";
+      if (x >= 100 && y < 100) return "weakening";
+      if (x < 100 && y < 100) return "lagging";
+      return "improving";
+    }
+    function shortName(name) {
+      return name.endsWith("類指數") ? name.slice(0, -3) : name;
+    }
+
+    // ---------- DOM ----------
+    const el = {
+      asOf: document.getElementById("asOfLabel"),
+      benchmarkSelect: document.getElementById("benchmarkSelect"),
+      periodSelect: document.getElementById("periodSelect"),
+      rangeSelect: document.getElementById("rangeSelect"),
+      tailSlider: document.getElementById("tailSlider"),
+      tailValue: document.getElementById("tailValue"),
+      canvas: document.getElementById("rrgCanvas"),
+      canvasWrap: document.getElementById("canvasWrap"),
+      tooltip: document.getElementById("tooltip"),
+      playBtn: document.getElementById("playBtn"),
+      resetBtn: document.getElementById("resetBtn"),
+      speed1: document.getElementById("speed1"),
+      speed2: document.getElementById("speed2"),
+      speed4: document.getElementById("speed4"),
+      dateSlider: document.getElementById("dateSlider"),
+      dateLabel: document.getElementById("dateLabel"),
+      breakoutList: document.getElementById("breakoutList"),
+      breakoutEmpty: document.getElementById("breakoutEmpty"),
+      selAllBtn: document.getElementById("selAllBtn"),
+      selNoneBtn: document.getElementById("selNoneBtn"),
+      selOnlyBtn: document.getElementById("selOnlyBtn"),
+      groupList: document.getElementById("groupList"),
+    };
+
+    el.asOf.textContent = "資料日期：" + (data.as_of || data.dates[data.dates.length - 1]);
+
+    // ---------- 選項初始化 ----------
+    data.benchmarks.forEach((bm) => {
+      const opt = document.createElement("option");
+      opt.value = bm; opt.textContent = bm;
+      el.benchmarkSelect.appendChild(opt);
+    });
+    data.periods.forEach((p) => {
+      const opt = document.createElement("option");
+      opt.value = p;
+      opt.textContent = p + "日" + (p === 20 ? "（短線）" : p === 60 ? "（波段）" : p === 120 ? "（長期）" : "");
+      el.periodSelect.appendChild(opt);
+    });
+
+    let currentBenchmark = data.benchmarks[0];
+    let currentPeriod = data.periods[0];
+
+    // 族群清單：以第一個 benchmark/period 底下的 key 為準
+    const allGroups = Object.keys(data.series[currentBenchmark][currentPeriod]);
+    const defaultHidden = new Set(data.default_hidden || []);
+    const visibleGroups = new Set(allGroups.filter((g) => !defaultHidden.has(g)));
+
+    let onlySelectedFilter = false;
+
+    // ---------- 清單 UI ----------
+    const rowMap = {};
+    allGroups.forEach((g) => {
+      const row = document.createElement("label");
+      row.className = "group-row";
+      row.innerHTML =
+        '<input type="checkbox" ' + (visibleGroups.has(g) ? "checked" : "") + '>' +
+        '<span class="dot"></span>' +
+        '<span class="name">' + shortName(g) + '</span>' +
+        '<span class="badge" style="display:none;">轉強</span>';
+      const checkbox = row.querySelector("input");
+      checkbox.addEventListener("change", () => {
+        if (checkbox.checked) visibleGroups.add(g); else visibleGroups.delete(g);
+        recomputeBounds();
+        applyListFilter();
+      });
+      el.groupList.appendChild(row);
+      rowMap[g] = row;
+    });
+
+    function applyListFilter() {
+      allGroups.forEach((g) => {
+        const row = rowMap[g];
+        const hide = onlySelectedFilter && !visibleGroups.has(g);
+        row.classList.toggle("hidden-by-filter", hide);
+      });
+    }
+
+    el.selAllBtn.addEventListener("click", () => {
+      allGroups.forEach((g) => { visibleGroups.add(g); rowMap[g].querySelector("input").checked = true; });
+      recomputeBounds(); applyListFilter();
+    });
+    el.selNoneBtn.addEventListener("click", () => {
+      allGroups.forEach((g) => { visibleGroups.delete(g); rowMap[g].querySelector("input").checked = false; });
+      recomputeBounds(); applyListFilter();
+    });
+    el.selOnlyBtn.addEventListener("click", () => {
+      onlySelectedFilter = !onlySelectedFilter;
+      el.selOnlyBtn.classList.toggle("active", onlySelectedFilter);
+      applyListFilter();
+    });
+
+    // ---------- 資料切片 ----------
+    let dateSlice = [];
+    let seriesSlice = {}; // group -> array aligned with dateSlice
+    let bounds = { xMin: 90, xMax: 110, yMin: 90, yMax: 110 };
+    let playIndex = 0;
+
+    function rebuildSlice() {
+      const rangeDays = Math.min(parseInt(el.rangeSelect.value, 10), data.dates.length);
+      dateSlice = data.dates.slice(-rangeDays);
+      seriesSlice = {};
+      const src = data.series[currentBenchmark][currentPeriod] || {};
+      allGroups.forEach((g) => {
+        const arr = src[g] || [];
+        seriesSlice[g] = arr.slice(-rangeDays);
+      });
+      playIndex = dateSlice.length - 1;
+      recomputeBounds();
+      syncDateSliderRange();
+      syncDateUI();
+    }
+
+    function recomputeBounds() {
+      let xs = [100], ys = [100];
+      allGroups.forEach((g) => {
+        if (!visibleGroups.has(g)) return;
+        const arr = seriesSlice[g] || [];
+        for (const p of arr) {
+          if (p) { xs.push(p[0]); ys.push(p[1]); }
+        }
+      });
+      let xMin = Math.min.apply(null, xs), xMax = Math.max.apply(null, xs);
+      let yMin = Math.min.apply(null, ys), yMax = Math.max.apply(null, ys);
+      const padX = Math.max((xMax - xMin) * 0.15, 1.5);
+      const padY = Math.max((yMax - yMin) * 0.15, 1.5);
+      bounds = { xMin: xMin - padX, xMax: xMax + padX, yMin: yMin - padY, yMax: yMax + padY };
+    }
+
+    function syncDateSliderRange() {
+      el.dateSlider.min = 0;
+      el.dateSlider.max = Math.max(0, dateSlice.length - 1);
+      el.dateSlider.value = playIndex;
+    }
+
+    function syncDateUI() {
+      el.dateSlider.value = playIndex;
+      el.dateLabel.textContent = dateSlice[playIndex] || "--";
+      updateBreakout();
+    }
+
+    el.benchmarkSelect.addEventListener("change", () => {
+      currentBenchmark = el.benchmarkSelect.value;
+      playing = false; updatePlayButton();
+      rebuildSlice();
+    });
+    el.periodSelect.addEventListener("change", () => {
+      currentPeriod = parseInt(el.periodSelect.value, 10);
+      playing = false; updatePlayButton();
+      rebuildSlice();
+    });
+    el.rangeSelect.addEventListener("change", () => {
+      playing = false; updatePlayButton();
+      rebuildSlice();
+    });
+    el.dateSlider.addEventListener("input", () => {
+      playIndex = parseInt(el.dateSlider.value, 10);
+      syncDateUI();
+    });
+
+    let tailLength = parseInt(el.tailSlider.value, 10);
+    el.tailSlider.addEventListener("input", () => {
+      tailLength = parseInt(el.tailSlider.value, 10);
+      el.tailValue.textContent = tailLength;
+    });
+
+    // ---------- 播放控制 ----------
+    let playing = false;
+    let speed = 1;
+    const BASE_INTERVAL = 350; // ms / 交易日 @1x
+    let lastTickTime = 0;
+
+    function updatePlayButton() {
+      el.playBtn.textContent = playing ? "⏸ 暫停" : "▶ 播放";
+    }
+    el.playBtn.addEventListener("click", () => {
+      if (!playing && playIndex >= dateSlice.length - 1) playIndex = 0; // 播完後再按重新開始
+      playing = !playing;
+      updatePlayButton();
+    });
+    el.resetBtn.addEventListener("click", () => {
+      playing = false; updatePlayButton();
+      playIndex = 0;
+      syncDateUI();
+    });
+    function setSpeed(s, btn) {
+      speed = s;
+      [el.speed1, el.speed2, el.speed4].forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+    }
+    el.speed1.addEventListener("click", () => setSpeed(1, el.speed1));
+    el.speed2.addEventListener("click", () => setSpeed(2, el.speed2));
+    el.speed4.addEventListener("click", () => setSpeed(4, el.speed4));
+
+    // ---------- 剛轉強偵測 ----------
+    function isBreakout(g) {
+      const arr = seriesSlice[g];
+      if (!arr) return false;
+      const cur = arr[playIndex];
+      if (!cur) return false;
+      if (!(cur[0] >= 100 && cur[1] >= 100)) return false; // 現在不在領先象限
+      for (let k = 1; k <= 5; k++) {
+        const j = playIndex - k;
+        if (j < 0) break;
+        const p = arr[j];
+        if (!p) continue;
+        if (p[0] < 100 && p[1] >= 100) return true; // 近5日內曾在改善象限
+      }
+      return false;
+    }
+
+    let lastBreakoutKey = null;
+    function updateBreakout() {
+      const breakoutGroups = allGroups.filter(isBreakout);
+      const key = breakoutGroups.join("|") + "@" + playIndex;
+      if (key === lastBreakoutKey) return;
+      lastBreakoutKey = key;
+
+      el.breakoutList.innerHTML = "";
+      if (breakoutGroups.length === 0) {
+        el.breakoutEmpty.style.display = "block";
+      } else {
+        el.breakoutEmpty.style.display = "none";
+        breakoutGroups.forEach((g) => {
+          const chip = document.createElement("span");
+          chip.className = "breakout-chip";
+          chip.textContent = shortName(g);
+          el.breakoutList.appendChild(chip);
+        });
+      }
+      allGroups.forEach((g) => {
+        const row = rowMap[g];
+        const isB = breakoutGroups.includes(g);
+        row.classList.toggle("breakout-row", isB);
+        row.querySelector(".badge").style.display = isB ? "inline-block" : "none";
+      });
+      breakoutSet = new Set(breakoutGroups);
+    }
+    let breakoutSet = new Set();
+
+    // ---------- Canvas 繪製 ----------
+    const ctx = el.canvas.getContext("2d");
+    let dpr = window.devicePixelRatio || 1;
+    let markers = []; // 本次繪製的可 hover 標記
+
+    function resizeCanvas() {
+      const rect = el.canvasWrap.getBoundingClientRect();
+      dpr = window.devicePixelRatio || 1;
+      el.canvas.width = Math.max(1, Math.floor(rect.width * dpr));
+      el.canvas.height = Math.max(1, Math.floor(rect.height * dpr));
+      el.canvas.style.width = rect.width + "px";
+      el.canvas.style.height = rect.height + "px";
+    }
+    window.addEventListener("resize", resizeCanvas);
+    // 初次載入時排版可能尚未完成（同步量測會得到 0 尺寸），用 ResizeObserver 在容器實際定型後校正
+    if (typeof ResizeObserver !== "undefined") {
+      new ResizeObserver(resizeCanvas).observe(el.canvasWrap);
+    }
+
+    function plotRect() {
+      const w = el.canvas.width, h = el.canvas.height;
+      const pad = { l: 62 * dpr, r: 24 * dpr, t: 24 * dpr, b: 46 * dpr };
+      return { x: pad.l, y: pad.t, w: w - pad.l - pad.r, h: h - pad.t - pad.b };
+    }
+    function toX(rect, x) { return rect.x + (x - bounds.xMin) / (bounds.xMax - bounds.xMin) * rect.w; }
+    function toY(rect, y) { return rect.y + rect.h - (y - bounds.yMin) / (bounds.yMax - bounds.yMin) * rect.h; }
+
+    // ---------- 流暢度監測：掉幀自動降級關閉光暈 ----------
+    let frameEma = 16.7; // 假設起始 60fps
+    let lastFrameTs = 0;
+    let glowEnabled = true;
+    const GLOW_OFF_MS = 26; // 平均幀時間超過此值（約 <38fps）→ 關閉光暈
+    const GLOW_ON_MS = 18;  // 平均幀時間低於此值（約 >55fps）→ 恢復光暈
+
+    function clearShadow() {
+      ctx.shadowBlur = 0;
+      ctx.shadowColor = "transparent";
+    }
+
+    function draw(ts) {
+      const w = el.canvas.width, h = el.canvas.height;
+      ctx.clearRect(0, 0, w, h);
+      if (dateSlice.length === 0) return;
+      const rect = plotRect();
+
+      const midX = toX(rect, 100), midY = toY(rect, 100);
+      const left = rect.x, right = rect.x + rect.w, top = rect.y, bottom = rect.y + rect.h;
+
+      // 象限底色（暖調同色系極淡染）
+      ctx.fillStyle = "rgba(143,90,0,0.10)";   // 領先 右上 金琥珀
+      ctx.fillRect(midX, top, right - midX, midY - top);
+      ctx.fillStyle = "rgba(174,68,22,0.10)";  // 弱化 右下 夕陽橘
+      ctx.fillRect(midX, midY, right - midX, bottom - midY);
+      ctx.fillStyle = "rgba(91,100,120,0.09)"; // 落後 左下 霧灰
+      ctx.fillRect(left, midY, midX - left, bottom - midY);
+      ctx.fillStyle = "rgba(37,107,58,0.09)";  // 改善 左上 葉綠
+      ctx.fillRect(left, top, midX - left, midY - top);
+
+      // 十字中心線
+      ctx.strokeStyle = "rgba(120,90,40,0.28)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(midX, top); ctx.lineTo(midX, bottom);
+      ctx.moveTo(left, midY); ctx.lineTo(right, midY);
+      ctx.stroke();
+
+      // 邊框
+      ctx.strokeStyle = "rgba(120,90,40,0.38)";
+      ctx.strokeRect(left, top, right - left, bottom - top);
+
+      // 象限標籤
+      ctx.font = "600 " + (12 * dpr) + "px sans-serif";
+      ctx.textBaseline = "top";
+      ctx.fillStyle = QUADRANT_COLOR.leading; ctx.textAlign = "right";
+      ctx.fillText(QUADRANT_LABEL.leading, right - 6 * dpr, top + 6 * dpr);
+      ctx.fillStyle = QUADRANT_COLOR.weakening; ctx.textAlign = "right"; ctx.textBaseline = "bottom";
+      ctx.fillText(QUADRANT_LABEL.weakening, right - 6 * dpr, bottom - 6 * dpr);
+      ctx.fillStyle = QUADRANT_COLOR.lagging; ctx.textAlign = "left"; ctx.textBaseline = "bottom";
+      ctx.fillText(QUADRANT_LABEL.lagging, left + 6 * dpr, bottom - 6 * dpr);
+      ctx.fillStyle = QUADRANT_COLOR.improving; ctx.textAlign = "left"; ctx.textBaseline = "top";
+      ctx.fillText(QUADRANT_LABEL.improving, left + 6 * dpr, top + 6 * dpr);
+
+      // 軸標籤
+      ctx.fillStyle = "#6b5a47";
+      ctx.font = (12 * dpr) + "px sans-serif";
+      ctx.textAlign = "center"; ctx.textBaseline = "top";
+      ctx.fillText("相對強弱 RS-Ratio →", (left + right) / 2, bottom + 20 * dpr);
+      ctx.save();
+      ctx.translate(left - 42 * dpr, (top + bottom) / 2);
+      ctx.rotate(-Math.PI / 2);
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText("動能 RS-Momentum ↑", 0, 0);
+      ctx.restore();
+
+      // 資料點與尾巴（發光數據流；掉幀時自動關閉光暈以維持流暢）
+      markers = [];
+      const startIdx = Math.max(0, playIndex - tailLength + 1);
+      allGroups.forEach((g) => {
+        if (!visibleGroups.has(g)) return;
+        const arr = seriesSlice[g];
+        if (!arr) return;
+
+        // 尾巴：逐段畫，愈舊愈透明
+        let prev = null, prevIdx = null;
+        for (let i = startIdx; i <= playIndex; i++) {
+          const p = arr[i];
+          if (!p) { prev = null; prevIdx = null; continue; }
+          if (prev) {
+            const span = Math.max(1, playIndex - startIdx);
+            const age = (playIndex - i) / span; // 0=最新 1=最舊
+            const alpha = 0.10 + (1 - age) * 0.55;
+            const q = quadrantOf(p[0], p[1]);
+            ctx.strokeStyle = hexToRgba(QUADRANT_COLOR[q], alpha);
+            ctx.lineWidth = 1.6 * dpr;
+            if (glowEnabled) {
+              ctx.shadowColor = hexToRgba(QUADRANT_GLOW[q], 0.7);
+              ctx.shadowBlur = 6;
+            }
+            ctx.beginPath();
+            ctx.moveTo(toX(rect, prev[0]), toY(rect, prev[1]));
+            ctx.lineTo(toX(rect, p[0]), toY(rect, p[1]));
+            ctx.stroke();
+            if (glowEnabled) clearShadow();
+          }
+          prev = p; prevIdx = i;
+        }
+
+        const cur = arr[playIndex];
+        if (!cur) return;
+        const q = quadrantOf(cur[0], cur[1]);
+        const color = QUADRANT_COLOR[q];
+        const sx = toX(rect, cur[0]), sy = toY(rect, cur[1]);
+
+        // 轉強光圈（全息投影感，閃爍）
+        if (breakoutSet.has(g)) {
+          const phase = (Math.sin(ts / 260) + 1) / 2; // 0..1
+          const ringR = (7 + phase * 7) * dpr;
+          if (glowEnabled) {
+            ctx.shadowColor = hexToRgba(QUADRANT_GLOW.leading, 0.8);
+            ctx.shadowBlur = 8;
+          }
+          ctx.strokeStyle = hexToRgba(QUADRANT_COLOR.weakening, 0.85 - phase * 0.5);
+          ctx.lineWidth = 2 * dpr;
+          ctx.beginPath();
+          ctx.arc(sx, sy, ringR, 0, Math.PI * 2);
+          ctx.stroke();
+          if (glowEnabled) clearShadow();
+        }
+
+        // 點（發光核心）
+        if (glowEnabled) {
+          ctx.shadowColor = hexToRgba(QUADRANT_GLOW[q], 0.85);
+          ctx.shadowBlur = 7;
+        }
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(sx, sy, 4.5 * dpr, 0, Math.PI * 2);
+        ctx.fill();
+        if (glowEnabled) clearShadow();
+        ctx.strokeStyle = "rgba(255,255,255,0.85)";
+        ctx.lineWidth = 1 * dpr;
+        ctx.stroke();
+
+        // 標籤
+        ctx.fillStyle = "#2e2418";
+        ctx.font = (11 * dpr) + "px sans-serif";
+        ctx.textAlign = "left"; ctx.textBaseline = "middle";
+        ctx.fillText(shortName(g), sx + 7 * dpr, sy);
+
+        markers.push({ group: g, sx: sx / dpr, sy: sy / dpr, x: cur[0], y: cur[1], quadrant: q });
+
+        // 清單小圓點依目前象限著色
+        const dot = rowMap[g].querySelector(".dot");
+        if (dot) dot.style.background = color;
+      });
+    }
+
+    function hexToRgba(hex, alpha) {
+      const r = parseInt(hex.slice(1, 3), 16);
+      const g = parseInt(hex.slice(3, 5), 16);
+      const b = parseInt(hex.slice(5, 7), 16);
+      return "rgba(" + r + "," + g + "," + b + "," + alpha + ")";
+    }
+
+    // ---------- Hover ----------
+    el.canvas.addEventListener("mousemove", (e) => {
+      const rect = el.canvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+      let best = null, bestD = 14; // px 閾值
+      for (const m of markers) {
+        const d = Math.hypot(m.sx - mx, m.sy - my);
+        if (d < bestD) { bestD = d; best = m; }
+      }
+      if (best) {
+        el.tooltip.style.display = "block";
+        el.tooltip.style.left = (mx + 14) + "px";
+        el.tooltip.style.top = (my + 10) + "px";
+        el.tooltip.querySelector(".tt-name").textContent = best.group;
+        el.tooltip.querySelector(".tt-val").textContent =
+          "RS-Ratio " + best.x.toFixed(2) + " ／ RS-Momentum " + best.y.toFixed(2);
+      } else {
+        el.tooltip.style.display = "none";
+      }
+    });
+    el.canvas.addEventListener("mouseleave", () => { el.tooltip.style.display = "none"; });
+
+    // ---------- 主迴圈 ----------
+    function loop(ts) {
+      if (lastFrameTs) {
+        const dt = ts - lastFrameTs;
+        frameEma = frameEma * 0.9 + dt * 0.1;
+        if (glowEnabled && frameEma > GLOW_OFF_MS) glowEnabled = false;
+        else if (!glowEnabled && frameEma < GLOW_ON_MS) glowEnabled = true;
+      }
+      lastFrameTs = ts;
+
+      if (playing) {
+        if (!lastTickTime) lastTickTime = ts;
+        const interval = BASE_INTERVAL / speed;
+        if (ts - lastTickTime >= interval) {
+          lastTickTime = ts;
+          if (playIndex < dateSlice.length - 1) {
+            playIndex++;
+            syncDateUI();
+          } else {
+            playing = false;
+            updatePlayButton();
+          }
+        }
+      } else {
+        lastTickTime = 0;
+      }
+      draw(ts);
+      requestAnimationFrame(loop);
+    }
+
+    // ---------- 啟動 ----------
+    applyListFilter();
+    resizeCanvas();
+    rebuildSlice();
+    requestAnimationFrame(loop);
+  }
+})();
+</script>
+</body>
+</html>

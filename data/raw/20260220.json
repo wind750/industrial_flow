@@ -1,0 +1,1 @@
+{"tables": [{"title": "115年02月20日 價格指數(臺灣證券交易所)", "fields": ["指數", "收盤指數", "漲跌(+/-)", "漲跌點數", "漲跌百分比(%)", "特殊處理註記"], "data": [], "hints": "單位：元、股"}, {}, {}, {}, {}, {}, {}, {}, {}, {}], "type": "IND", "params": {"date": "20260220", "type": "IND", "response": "json", "controller": "afterTrading", "action": "MI_INDEX", "lang": "zh"}, "stat": "OK", "date": "20260220"}

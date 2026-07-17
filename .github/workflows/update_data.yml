@@ -1,0 +1,49 @@
+name: 每日更新產業指數資料
+
+# 週一到週五 UTC 08:30（台北時間 16:30，證交所盤後資料已就緒）
+# 假日／非交易日抓不到資料屬正常情況：fetch_twse_sector.py --update 只抓「今天」
+# 一天，遇到非交易日會被證交所 API 判定為無資料並記錄、略過，不會讓這個
+# workflow 失敗。也保留 workflow_dispatch 供手動觸發（例如回補、測試）。
+on:
+  schedule:
+    - cron: "30 8 * * 1-5"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  update-data:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install requests pandas
+
+      - name: 抓取今日產業指數資料
+        run: python fetch_twse_sector.py --update
+
+      - name: 檢查 data/ 是否有變更
+        id: git_diff
+        run: |
+          git add data/
+          if git diff --cached --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit 並 push 更新
+        if: steps.git_diff.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore: 每日產業指數資料更新 $(date -u +%Y-%m-%d)"
+          git push
