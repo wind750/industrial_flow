@@ -286,14 +286,19 @@ def build_figure(
                 showactive=False,
                 buttons=[
                     dict(
+                        label="🐢 慢速",
+                        method="animate",
+                        args=[None, dict(frame=dict(duration=900, redraw=False), fromcurrent=True, transition=dict(duration=820, easing="cubic-in-out"))],
+                    ),
+                    dict(
                         label="▶ 播放",
                         method="animate",
-                        args=[None, dict(frame=dict(duration=220, redraw=False), fromcurrent=True, transition=dict(duration=200, easing="cubic-in-out"))],
+                        args=[None, dict(frame=dict(duration=480, redraw=False), fromcurrent=True, transition=dict(duration=430, easing="cubic-in-out"))],
                     ),
                     dict(
                         label="⏩ 快播",
                         method="animate",
-                        args=[None, dict(frame=dict(duration=90, redraw=False), fromcurrent=True, transition=dict(duration=80, easing="linear"))],
+                        args=[None, dict(frame=dict(duration=160, redraw=False), fromcurrent=True, transition=dict(duration=140, easing="linear"))],
                     ),
                     dict(
                         label="⏸ 暫停",
