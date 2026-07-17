@@ -254,7 +254,7 @@ def build_figure(
     slider_steps = [
         dict(
             method="animate",
-            args=[[f.name], dict(mode="immediate", frame=dict(duration=300, redraw=True), transition=dict(duration=0))],
+            args=[[f.name], dict(mode="immediate", frame=dict(duration=120, redraw=False), transition=dict(duration=100, easing="cubic-in-out"))],
             label=f.name,
         )
         for f in frames
@@ -288,7 +288,12 @@ def build_figure(
                     dict(
                         label="▶ 播放",
                         method="animate",
-                        args=[None, dict(frame=dict(duration=400, redraw=True), fromcurrent=True, transition=dict(duration=0))],
+                        args=[None, dict(frame=dict(duration=220, redraw=False), fromcurrent=True, transition=dict(duration=200, easing="cubic-in-out"))],
+                    ),
+                    dict(
+                        label="⏩ 快播",
+                        method="animate",
+                        args=[None, dict(frame=dict(duration=90, redraw=False), fromcurrent=True, transition=dict(duration=80, easing="linear"))],
                     ),
                     dict(
                         label="⏸ 暫停",
