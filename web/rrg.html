@@ -500,7 +500,8 @@
     });
 
     let currentBenchmark = data.benchmarks[0];
-    let currentPeriod = data.periods[0];
+    let currentPeriod = data.periods.includes(60) ? 60 : data.periods[0];
+    el.periodSelect.value = currentPeriod;
 
     // 族群清單：以第一個 benchmark/period 底下的 key 為準
     const allGroups = Object.keys(data.series[currentBenchmark][currentPeriod]);

@@ -378,7 +378,7 @@ def main() -> None:
         period = st.select_slider(
             "週期",
             options=PERIODS,
-            value=120 if 120 in PERIODS else PERIODS[-1],
+            value=60 if 60 in PERIODS else PERIODS[-1],
             format_func=lambda w: PERIOD_LABELS.get(w, str(w)),
         )
 
