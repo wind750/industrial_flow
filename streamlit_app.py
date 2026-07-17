@@ -143,6 +143,7 @@ def build_figure(
     sectors: list[str],
     output_dates: list[pd.Timestamp],
     tail_len: int,
+    show_labels: bool = True,
 ) -> go.Figure:
     fig = go.Figure()
 
@@ -191,26 +192,33 @@ def build_figure(
         window_dates = output_dates[start : idx + 1]
         traces = []
         for sector in sectors:
-            xs, ys, colors, sizes, texts = [], [], [], [], []
+            xs, ys, colors, sizes, hover_texts = [], [], [], [], []
             for wd in window_dates:
                 x, y = get_xy(sector, wd)
                 xs.append(x)
                 ys.append(y)
                 cat = classify_quadrant(x, y) if x is not None else None
                 colors.append(QUADRANT_META[cat][1] if cat else "rgba(0,0,0,0)")
-                texts.append(f"{sector}<br>{wd.strftime('%Y-%m-%d')}<br>RS-Ratio: {x:.2f}<br>RS-Momentum: {y:.2f}" if x is not None else "")
+                hover_texts.append(f"{sector}<br>{wd.strftime('%Y-%m-%d')}<br>RS-Ratio: {x:.2f}<br>RS-Momentum: {y:.2f}" if x is not None else "")
             sizes = [7] * len(xs)
             if sizes:
                 sizes[-1] = 15
+            # 常駐名稱標籤只掛在最新一點（尾巴其餘點留空），避免整條軌跡都是字
+            point_labels = [""] * len(xs)
+            if point_labels and xs and xs[-1] is not None:
+                point_labels[-1] = sector.replace("類指數", "")
             traces.append(
                 go.Scatter(
                     x=xs,
                     y=ys,
-                    mode="lines+markers",
+                    mode="lines+markers+text" if show_labels else "lines+markers",
                     line=dict(color=COLOR_TAIL_LINE, width=1.5),
                     marker=dict(color=colors, size=sizes, line=dict(color="rgba(255,255,255,0.6)", width=1)),
                     name=sector,
-                    text=texts,
+                    text=point_labels,
+                    textposition="top center",
+                    textfont=dict(size=10, color="#5b4a37"),
+                    hovertext=hover_texts,
                     hoverinfo="text",
                     showlegend=False,
                 )
@@ -378,6 +386,8 @@ def main() -> None:
 
         tail_len = st.slider("尾巴長度（交易日）", min_value=5, max_value=60, value=10, step=1)
 
+        show_labels = st.checkbox("顯示族群名稱", value=True, help="在每個點旁標註族群短名；點太擠時可暫時關閉")
+
         default_sectors = [s for s in available_sectors if s not in DEFAULT_HIDDEN]
         sectors = st.multiselect("族群", options=available_sectors, default=default_sectors)
 
@@ -412,7 +422,7 @@ def main() -> None:
             unsafe_allow_html=True,
         )
 
-    fig = build_figure(coords_full, sectors, output_dates, tail_len)
+    fig = build_figure(coords_full, sectors, output_dates, tail_len, show_labels)
     st.plotly_chart(fig, use_container_width=True)
 
     as_of = latest_date.strftime("%Y-%m-%d")
