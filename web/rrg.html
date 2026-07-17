@@ -19,10 +19,10 @@
     --text-dim: #6b5a47;
     --accent: #8f5a00;
     --accent-soft: #d9a544;
-    --leading: #8f5a00;    /* 金琥珀 Leading */
-    --weakening: #ae4416;  /* 夕陽橘 Weakening */
-    --lagging: #5b6478;    /* 霧灰 Lagging */
-    --improving: #256b3a;  /* 葉綠 Improving */
+    --leading: #8f5a00;    /* 太陽金 Leading（暖＝強） */
+    --weakening: #ae4416;  /* 夕陽橘 Weakening（暖） */
+    --lagging: #4a6288;    /* 霧藍 Lagging（冷＝弱） */
+    --improving: #155e8a;  /* 科技藍 Improving（冷） */
     --glow-gold: rgba(217, 165, 68, 0.55);
     --shadow-gold: rgba(180, 130, 40, 0.28);
   }
@@ -443,9 +443,9 @@
   // ================= 主邏輯 =================
   function init(data) {
     // 主色（同時作為文字／描邊色，皆通過 WCAG AA 對比驗證）
-    const QUADRANT_COLOR = { leading: "#8f5a00", weakening: "#ae4416", lagging: "#5b6478", improving: "#256b3a" };
+    const QUADRANT_COLOR = { leading: "#8f5a00", weakening: "#ae4416", lagging: "#4a6288", improving: "#155e8a" };
     // 光暈色（僅用於 shadowColor 發光效果，不承擔對比責任）
-    const QUADRANT_GLOW = { leading: "#f5c36b", weakening: "#f2946a", lagging: "#a8b3c6", improving: "#6fcb8a" };
+    const QUADRANT_GLOW = { leading: "#f5c36b", weakening: "#f2946a", lagging: "#9db4d6", improving: "#5db8e8" };
     const QUADRANT_LABEL = { leading: "領先 Leading", weakening: "弱化 Weakening", lagging: "落後 Lagging", improving: "改善 Improving" };
 
     function quadrantOf(x, y) {
@@ -753,9 +753,9 @@
       ctx.fillRect(midX, top, right - midX, midY - top);
       ctx.fillStyle = "rgba(174,68,22,0.10)";  // 弱化 右下 夕陽橘
       ctx.fillRect(midX, midY, right - midX, bottom - midY);
-      ctx.fillStyle = "rgba(91,100,120,0.09)"; // 落後 左下 霧灰
+      ctx.fillStyle = "rgba(74,98,136,0.09)"; // 落後 左下 霧藍
       ctx.fillRect(left, midY, midX - left, bottom - midY);
-      ctx.fillStyle = "rgba(37,107,58,0.09)";  // 改善 左上 葉綠
+      ctx.fillStyle = "rgba(21,94,138,0.09)";  // 改善 左上 科技藍
       ctx.fillRect(left, top, midX - left, midY - top);
 
       // 十字中心線
