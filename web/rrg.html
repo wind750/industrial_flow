@@ -607,6 +607,9 @@
      靜默略過，不影響台股面板；下方 JS 一律先檢查 window.RRG_DATASETS_GLOBAL
      是否存在再使用，file:// 直開只有台股檔時也完全正常運作。 -->
 <script src="rrg_data_global.js" onerror="window.__RRG_GLOBAL_MISSING__ = true;"></script>
+<!-- 上櫃類股面板資料（選用）。同樣以 onerror 靜默略過缺檔情況，不影響其他
+     面板；下方 JS 先檢查 window.RRG_DATASET_TPEX 是否存在再使用。 -->
+<script src="rrg_data_tpex.js" onerror="window.__RRG_TPEX_MISSING__ = true;"></script>
 <script>
 (function () {
   "use strict";
@@ -641,14 +644,19 @@
 
   // ---------- 組裝多面板 datasets 陣列 ----------
   // 統一內部表示：把既有 window.RRG_DATA（台股類股，單一資料集，無 id/label）
-  // 包成跟 window.RRG_DATASETS_GLOBAL（全球資產／市場輪動，選用）同樣的
+  // 包成跟 window.RRG_DATASET_TPEX（上櫃類股，選用，單一資料集，本身已帶
+  // id/label）／window.RRG_DATASETS_GLOBAL（全球資產／市場輪動，選用）同樣的
   // {id, label, as_of, benchmarks, periods, dates, series, default_hidden}
-  // 形狀，合併成一份 datasets 陣列。全球檔缺席（file:// 直開、或 404）時
-  // window.RRG_DATASETS_GLOBAL 就是 undefined，直接略過，台股面板不受影響。
+  // 形狀，合併成一份 datasets 陣列，順序＝台股類股、上櫃類股、全球資產、
+  // 市場輪動。上櫃／全球檔缺席（file:// 直開、或 404）時對應的 window 全域
+  // 變數就是 undefined，直接略過，不影響其他面板。
   const rawTwse = (typeof window.RRG_DATA !== "undefined") ? window.RRG_DATA : null;
   const datasets = [];
   if (validateData(rawTwse)) {
     datasets.push(Object.assign({ id: "twse", label: "台股類股" }, rawTwse));
+  }
+  if (typeof window.RRG_DATASET_TPEX !== "undefined" && validateData(window.RRG_DATASET_TPEX)) {
+    datasets.push(window.RRG_DATASET_TPEX);
   }
   if (Array.isArray(window.RRG_DATASETS_GLOBAL)) {
     window.RRG_DATASETS_GLOBAL.forEach((ds) => {

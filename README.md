@@ -16,13 +16,15 @@ https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX?date={YYYYMMDD}&type=IND&re
 |---|---|
 | `fetch_twse_sector.py` | 抓取證交所「價格指數(臺灣證券交易所)」表格（約 56 檔指數，含加權指數、臺灣50指數與各類指數），存原始 JSON 並彙整成 `data/sector_indices.csv` |
 | `compute_rrg.py` | 讀 `data/sector_indices.csv`，對兩個基準（發行量加權股價指數、臺灣50指數）× 三個週期（20/60/120 日）計算 RRG 座標，輸出 `web/rrg_data.js` |
+| `fetch_tpex_sector.py` | 抓取櫃買中心（TPEx）產業類股價格指數，存原始 JSON 並彙整成 `data/tpex_indices.csv`（詳見下方〈上櫃類股面板〉） |
+| `compute_tpex.py` | 讀 `data/tpex_indices.csv`，以「櫃買指數」為單一基準 × 三個週期（20/60/120 日）計算 RRG 座標，輸出 `web/rrg_data_tpex.js` |
 | `fetch_global.py` | 抓取「全球資產」「市場輪動」兩面板用的海外 ETF／指數歷史日線收盤，存成 `data/global_prices.csv`（詳見下方〈全球資產／市場輪動面板〉） |
 | `compute_global.py` | 讀 `data/global_prices.csv`，重用 `compute_rrg.py` 的計算核心，輸出 `web/rrg_data_global.js` |
 | `update_daily.bat` | 每日排程用：依序執行「抓今天」+「重算」，任一步失敗就回傳非 0 exit code |
 
 `web/rrg.html`（前端頁面）由另一位開發者維護，不屬於本管線範圍；但已支援讀取
-`rrg_data_global.js`（若存在）並在同一頁面切換「台股類股／全球資產／市場輪動」
-三個面板。
+`rrg_data_tpex.js`／`rrg_data_global.js`（若存在）並在同一頁面切換「台股類股／
+上櫃類股／全球資產／市場輪動」四個面板。
 
 ## 資料目錄
 
@@ -106,6 +108,42 @@ rs_momentum  = trailing_wma(mom_raw, SMOOTH_WINDOW)
   但仍非零延遲）——這是「軌跡變優雅」與「反應變即時」之間刻意的取捨。
 - 要關閉平滑、回到未平滑的原始 zscore 序列：把 `compute_rrg.py` 的
   `SMOOTH_WINDOW` 改成 `0` 或 `1`（`trailing_wma()` 會直接原樣回傳輸入）。
+
+## 上櫃類股面板
+
+除了上市台股類股，`web/rrg.html` 另外支援「上櫃類股」面板：資料源為
+**櫃買中心（TPEx）**公開的產業類股價格指數（與上市面板同樣走
+`compute_rrg.py` 的計算核心，只是資料源與成員清單不同）：
+
+```
+https://www.tpex.org.tw/www/zh-tw/afterTrading/indexSummary?date={YYYY/MM/DD}&response=json
+```
+
+（實際端點與參數細節見 `fetch_tpex_sector.py`；輸出彙整成
+`data/tpex_indices.csv`，欄位與 `data/sector_indices.csv` 相同：`date`,`name`,`close`。）
+
+- **基準**：單一基準「櫃買指數」（不像上市面板有雙基準）。
+- **週期**：與其他面板一致，20／60／120 日三組。
+- **成員（22 個上櫃產業類股）**：紡織纖維、電機機械、鋼鐵工業、電子工業、
+  建材營造、航運業、觀光餐旅、其他、化學工業、生技醫療、半導體業、
+  電腦及週邊設備業、光電業、通信網路業、電子零組件業、電子通路業、
+  資訊服務業、其他電子業、文化創意業、綠能環保、數位雲端、居家生活
+  （不含富櫃50/200、公司治理、ESG、櫃買總指數等主題／市場指數；完整清單見
+  `compute_tpex.py` 的 `TPEX_SECTORS`）。
+
+**與上市面板的區別**：上市（`sector_indices.csv`）以傳產／權值股為主的類股
+結構為主；上櫃則明顯偏向題材型／成長型產業（文化創意業、數位雲端、綠能
+環保、生技醫療等佔比較高），兩個面板適合對照著看——上市面板反映大盤主流
+資金，上櫃面板則較能捕捉中小型題材股的輪動節奏。
+
+**每日更新**：與上市面板併入同一個排程 job（`update-twse`，見下方
+〈更新排程〉），台北時間 16:30（證交所／櫃買中心盤後資料皆已就緒）依序執行
+`fetch_twse_sector.py --update` → `fetch_tpex_sector.py --update`，
+`data/tpex_indices.csv` 與 `data/raw_tpex/` 一併 commit。雲端版
+`streamlit_app.py` 讀 `data/tpex_indices.csv` 動態計算，不依賴
+`web/rrg_data_tpex.js`（該檔比照 `rrg_data.js`／`rrg_data_global.js`，
+只是本機/CI 產物，不進版控）；`data/tpex_indices.csv` 不存在時頁面會靜默
+略過上櫃面板，只顯示其餘面板，不會出錯。
 
 ## 全球資產／市場輪動面板
 
@@ -237,8 +275,10 @@ stooq、只打 yfinance**（`SYMBOLS` 清單中把 `stooq_symbol` 設為 `None` 
 `.github/workflows/update_data.yml` 內第二個排程 `0 22 * * 1-5`（台北時間
 隔日 06:00，美股收盤後）會依序執行 `fetch_global.py` → `compute_global.py`
 （後者在 CI 內只作為資料品質檢查，其產物 `web/rrg_data_global.js` 不進版控，
-只有 `data/global_prices.csv` 會被 commit）。兩個排程（台股 08:30 UTC／全球
-22:00 UTC）各自對應獨立的 job，互不干擾——細節見該 workflow 檔案開頭註解。
+只有 `data/global_prices.csv` 會被 commit）。兩個排程（台股／上櫃 08:30
+UTC，併入同一個 `update-twse` job；全球 22:00 UTC，`update-global` job）
+各自對應獨立的 job，互不干擾——細節見該 workflow 檔案開頭註解與下方
+〈上櫃類股面板〉。
 
 ### 本機用法
 
@@ -258,12 +298,13 @@ python compute_global.py     # 計算 RRG 座標，輸出 web/rrg_data_global.js
 
 ## Streamlit 部署
 
-雲端版 `streamlit_app.py` 讀 `data/sector_indices.csv` 與（若存在）
-`data/global_prices.csv`，重用 `compute_rrg.py`／`compute_global.py` 的計算
-核心，提供互動式 RRG 動畫（基準／週期／回放範圍／尾巴長度／族群篩選／面板
-切換）。`web/rrg.html` 為另一位開發者維護的本機版頁面；雲端版把
-`window.RRG_DATA` 與 `window.RRG_DATASETS_GLOBAL` 動態算好後內嵌進同一份
-`rrg.html` 原始碼再用 `st.iframe` 整頁嵌入，兩邊共用同一份前端邏輯。
+雲端版 `streamlit_app.py` 讀 `data/sector_indices.csv`、（若存在）
+`data/tpex_indices.csv` 與（若存在）`data/global_prices.csv`，重用
+`compute_rrg.py`／`compute_tpex.py`／`compute_global.py` 的計算核心，提供
+互動式 RRG 動畫（基準／週期／回放範圍／尾巴長度／族群篩選／面板切換）。
+`web/rrg.html` 為另一位開發者維護的本機版頁面；雲端版把 `window.RRG_DATA`、
+`window.RRG_DATASET_TPEX` 與 `window.RRG_DATASETS_GLOBAL` 動態算好後內嵌進
+同一份 `rrg.html` 原始碼再用 `st.iframe` 整頁嵌入，兩邊共用同一份前端邏輯。
 
 1. 建 GitHub repo（例如 `industry-rotation-radar`），把本目錄整個推上去：
    ```
@@ -276,12 +317,12 @@ python compute_global.py     # 計算 RRG 座標，輸出 web/rrg_data_global.js
 2. 到 [share.streamlit.io](https://share.streamlit.io) 連結該 repo，Main file
    path 填 `streamlit_app.py`，部署即可。
 3. `.github/workflows/update_data.yml` 已設定兩個排程：週一到週五台北時間
-   16:30 自動抓當日證交所類股指數（`update-twse` job），以及週一到週五台北
-   時間隔日 06:00 自動抓全球資產／市場輪動資料（`update-global` job），皆
-   commit 回 repo；push 後 Streamlit Cloud 會偵測到 `data/` 變更並在下次
-   讀取時反映（`st.cache_data` TTL 為 1 小時）。也可在 GitHub Actions 頁面
-   手動 `Run workflow`，用 `target` 輸入選擇只回補台股／只回補全球／兩者
-   都跑。
+   16:30 自動抓當日證交所類股指數與櫃買中心上櫃類股指數（`update-twse`
+   job），以及週一到週五台北時間隔日 06:00 自動抓全球資產／市場輪動資料
+   （`update-global` job），皆 commit 回 repo；push 後 Streamlit Cloud 會
+   偵測到 `data/` 變更並在下次讀取時反映（`st.cache_data` TTL 為 1 小時）。
+   也可在 GitHub Actions 頁面手動 `Run workflow`，用 `target` 輸入選擇只
+   回補台股（含上櫃）／只回補全球／兩者都跑。
 4. Repo 的 Settings → Actions → General 需確認 Workflow permissions 允許
    「Read and write permissions」，否則 Actions 無法 push 更新（本 workflow
    已在 YAML 內宣告 `permissions: contents: write`，但部分機構帳號的預設

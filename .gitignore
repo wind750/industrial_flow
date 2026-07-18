@@ -9,6 +9,11 @@ web/rrg_data.js
 # 讀 data/global_prices.csv 現算，不依賴這個檔案。
 web/rrg_data_global.js
 
+# web/rrg_data_tpex.js 是 fetch_tpex_sector.py + compute_tpex.py 的本機/CI
+# 產物（比照上兩者現行做法，不進版控）；雲端版 streamlit_app.py 是動態讀
+# data/tpex_indices.csv 現算，不依賴這個檔案。
+web/rrg_data_tpex.js
+
 # Python
 __pycache__/
 *.pyc

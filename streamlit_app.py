@@ -52,6 +52,12 @@ from compute_global import (  # noqa: E402
 from compute_global import build_dataset as build_global_dataset  # noqa: E402
 from compute_global import build_multi_benchmark_dataset as build_global_assets_dataset  # noqa: E402
 
+# 上櫃類股面板重用 compute_tpex.py 暴露的 build_tpex_dataset（其內部同樣呼叫
+# compute_rrg 的計算核心，不重複實作公式）。TPEX_CSV_PATH 不存在時
+# load_tpex_pivot() 回空表，頁面據此略過上櫃面板，其餘面板照常運作。
+from compute_tpex import TPEX_CSV_PATH  # noqa: E402
+from compute_tpex import build_tpex_dataset  # noqa: E402
+
 DATA_CSV = SCRIPT_DIR / "data" / "sector_indices.csv"
 RRG_HTML_PATH = SCRIPT_DIR / "web" / "rrg.html"
 
@@ -226,28 +232,65 @@ def build_global_datasets(pivot_global: pd.DataFrame) -> list[dict]:
 
 
 # --------------------------------------------------------------------------
+# 上櫃類股面板資料載入與計算
+# --------------------------------------------------------------------------
+@st.cache_data(ttl=3600, show_spinner="讀取上櫃產業指數資料中…")
+def load_tpex_pivot() -> pd.DataFrame:
+    """讀 data/tpex_indices.csv 並轉成 date x name 的寬表格，index 為
+    DatetimeIndex。檔案不存在或為空時回傳空 DataFrame——呼叫端據此判斷是否
+    要嵌入上櫃面板，不是錯誤（例如本機尚未跑過 fetch_tpex_sector.py）。
+    """
+    if not TPEX_CSV_PATH.exists():
+        return pd.DataFrame()
+    df = pd.read_csv(TPEX_CSV_PATH, encoding="utf-8")
+    if df.empty:
+        return pd.DataFrame()
+    pivot = df.pivot_table(index="date", columns="name", values="close", aggfunc="last")
+    pivot.index = pd.to_datetime(pivot.index)
+    pivot = pivot.sort_index()
+    return pivot
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def build_tpex_payload(pivot_tpex: pd.DataFrame) -> dict | None:
+    """組出 window.RRG_DATASET_TPEX（"上櫃類股"面板，單一基準「櫃買指數」）。
+    實際運算全部呼叫 compute_tpex.build_tpex_dataset（其內部再呼叫
+    compute_rrg 的核心函式），本函式只負責依 pivot 是否有資料決定要不要組。
+    pivot 為空（CSV 不存在／無資料）時回傳 None，呼叫端據此略過上櫃面板。
+    """
+    if pivot_tpex.empty:
+        return None
+    dataset = build_tpex_dataset(pivot_tpex)
+    if not dataset["dates"]:
+        return None
+    return dataset
+
+
+# --------------------------------------------------------------------------
 # Canvas 頁嵌入組裝
 # --------------------------------------------------------------------------
 @st.cache_data(show_spinner=False)
 def build_rrg_embed_html(
     as_of: str,
     global_as_of: str | None,
+    tpex_as_of: str | None,
     rrg_html_mtime: float,
     _payload: dict,
     _global_datasets: list[dict],
+    _tpex_payload: dict | None,
 ) -> str:
-    """把 web/rrg.html 原始碼中的兩個 `<script src="...">` 都換成內嵌資料：
-    `window.RRG_DATA = {...}`（台股）與（若有全球資料）
+    """把 web/rrg.html 原始碼中的三個 `<script src="...">` 都換成內嵌資料：
+    `window.RRG_DATA = {...}`（台股）、（若有上櫃資料）
+    `window.RRG_DATASET_TPEX = {...}`（上櫃類股）與（若有全球資料）
     `window.RRG_DATASETS_GLOBAL = [...]`（全球資產／市場輪動），組成可直接
-    用 st.iframe 整頁嵌入的 HTML。全球資料缺席時保留原本的
-    `<script src="rrg_data_global.js" onerror="...">` 標籤原樣——在 iframe
-    srcdoc 環境下這個相對路徑本來就抓不到檔案，onerror 靜默處理，
-    rrg.html 的 JS 本就會檢查 window.RRG_DATASETS_GLOBAL 是否存在，頁面
-    仍只顯示台股面板，不會出錯。
+    用 st.iframe 整頁嵌入的 HTML。上櫃／全球資料缺席時保留原本的
+    `<script src="..." onerror="...">` 標籤原樣——在 iframe srcdoc 環境下
+    這個相對路徑本來就抓不到檔案，onerror 靜默處理，rrg.html 的 JS 本就會
+    檢查對應的 window 全域變數是否存在，頁面仍只顯示可用的面板，不會出錯。
 
-    快取 key 用 as_of／global_as_of／rrg.html 檔案 mtime（不含 payload 本身，
-    payload 以底線前綴排除雜湊——資料量大，靠 as_of/mtime 已足以判斷是否
-    需要重算），避免改版或換日後吃到舊快取。
+    快取 key 用 as_of／global_as_of／tpex_as_of／rrg.html 檔案 mtime（不含
+    payload 本身，payload 以底線前綴排除雜湊——資料量大，靠 as_of/mtime 已
+    足以判斷是否需要重算），避免改版或換日後吃到舊快取。
     """
     raw_html = RRG_HTML_PATH.read_text(encoding="utf-8")
     payload_json = json.dumps(_payload, ensure_ascii=False)
@@ -256,6 +299,13 @@ def build_rrg_embed_html(
         f"<script>window.RRG_DATA = {payload_json};</script>",
         1,
     )
+    if _tpex_payload:
+        tpex_json = json.dumps(_tpex_payload, ensure_ascii=False)
+        injected = injected.replace(
+            '<script src="rrg_data_tpex.js" onerror="window.__RRG_TPEX_MISSING__ = true;"></script>',
+            f"<script>window.RRG_DATASET_TPEX = {tpex_json};</script>",
+            1,
+        )
     if _global_datasets:
         global_json = json.dumps(_global_datasets, ensure_ascii=False)
         injected = injected.replace(
@@ -347,8 +397,9 @@ def main() -> None:
             "族群，圖表右側面板會即時標示（⚡ 剛轉強雷達）。\n\n"
             "基準指數、週期、回放範圍、尾巴長度與族群清單等控制項已整合在"
             "下方圖表內，請直接於圖表上操作。\n\n"
-            "**面板**：圖表左上角可切換「台股類股／全球資產／市場輪動」三個"
-            "面板；「市場輪動」以「全球股票 ACWI」為基準，「全球資產」可切換"
+            "**面板**：圖表左上角可切換「台股類股／上櫃類股／全球資產／"
+            "市場輪動」四個面板；「上櫃類股」以「櫃買指數」為單一基準；"
+            "「市場輪動」以「全球股票 ACWI」為基準，「全球資產」可切換"
             "「全球股票 ACWI」與「美元指數 DXY」雙基準（切到 DXY 時清單會排除"
             "「美元 UUP」自身）。"
         )
@@ -363,9 +414,14 @@ def main() -> None:
     global_datasets = build_global_datasets(pivot_global)
     global_as_of = global_datasets[0]["as_of"] if global_datasets else None
 
+    pivot_tpex = load_tpex_pivot()
+    tpex_payload = build_tpex_payload(pivot_tpex)
+    tpex_as_of = tpex_payload["as_of"] if tpex_payload else None
+
     rrg_html_mtime = RRG_HTML_PATH.stat().st_mtime if RRG_HTML_PATH.exists() else 0.0
     embed_html = build_rrg_embed_html(
-        payload["as_of"], global_as_of, rrg_html_mtime, payload, global_datasets
+        payload["as_of"], global_as_of, tpex_as_of, rrg_html_mtime,
+        payload, global_datasets, tpex_payload,
     )
     # st.components.v1.html 已棄用（目前 streamlit 版本會在執行時警告，且已過官方
     # 移除期限），改用原生 st.iframe：同樣接受原始 HTML 字串直接嵌入，語意等價。
@@ -378,6 +434,10 @@ def main() -> None:
     st.iframe(embed_html, height=780)
 
     footer_bits = [f"台股資料截至：{payload['as_of']}"]
+    if tpex_as_of:
+        footer_bits.append(f"上櫃資料截至：{tpex_as_of}")
+    else:
+        footer_bits.append("上櫃資料尚未產出（未執行 fetch_tpex_sector.py，僅顯示其餘面板）")
     if global_as_of:
         footer_bits.append(f"全球資料截至：{global_as_of}")
     else:
