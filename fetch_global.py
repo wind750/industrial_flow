@@ -61,17 +61,30 @@ MIN_DATE = "2018-01-01"
 # (stooq_symbol, yfinance_fallback_symbol, 說明——僅供 log 使用)
 # 共用基準 acwi.us 只出現一次；spy.us 同時是「全球資產」與「市場輪動」兩面板
 # 的成員（面板顯示名不同），但底層只需要抓一次。
-SYMBOLS: list[tuple[str, str, str]] = [
+#
+# stooq_symbol 為 None 代表 stooq 無此品項（v2 新增的商品期貨連續合約／
+# 美元指數，stooq 沒有對應代碼），直接跳過 stooq、只打 yfinance；此時輸出
+# CSV 的 name 欄位改用 yfinance_symbol 當品項鍵值（見 fetch_one／run）。
+SYMBOLS: list[tuple[str | None, str, str]] = [
     ("acwi.us", "ACWI", "全球股票 ACWI（共用基準）"),
     # -- 全球資產面板 --
     ("spy.us", "SPY", "美股 SPY ／ 市場面板：美國"),
     ("qqq.us", "QQQ", "美股科技 QQQ"),
     ("tlt.us", "TLT", "美債20年 TLT"),
+    ("ief.us", "IEF", "美債7-10年 IEF"),
+    ("lqd.us", "LQD", "投資級債 LQD"),
+    ("hyg.us", "HYG", "高收益債 HYG"),
     ("gld.us", "GLD", "黃金 GLD"),
-    ("uup.us", "UUP", "美元 UUP"),
-    ("vnq.us", "VNQ", "房地產 VNQ"),
+    ("slv.us", "SLV", "白銀 SLV"),
+    (None, "CL=F", "原油 WTI（連續期貨合約，僅 yfinance）"),
+    (None, "HG=F", "銅（連續期貨合約，僅 yfinance）"),
     ("dbc.us", "DBC", "商品 DBC"),
+    ("vnq.us", "VNQ", "房地產 VNQ"),
     ("btcusd", "BTC-USD", "比特幣 BTC"),
+    ("fxe.us", "FXE", "歐元 FXE"),
+    ("fxy.us", "FXY", "日圓 FXY"),
+    ("uup.us", "UUP", "美元 UUP"),
+    (None, "DX-Y.NYB", "美元指數 DXY（指數，僅 yfinance）"),
     # -- 市場輪動面板（spy.us 已在上方列出，不重複抓）--
     ("ewt.us", "EWT", "台灣"),
     ("ewj.us", "EWJ", "日本"),
@@ -151,34 +164,39 @@ def fetch_yfinance(symbol: str) -> pd.DataFrame | None:
     return out
 
 
-def fetch_one(stooq_symbol: str, yf_symbol: str, note: str) -> pd.DataFrame | None:
-    log(f"{stooq_symbol} ({note}): 嘗試 stooq...")
-    df = fetch_stooq(stooq_symbol)
-    if df is not None and not df.empty:
-        log(f"  stooq 成功，{len(df)} 列")
-        return df
+def fetch_one(stooq_symbol: str | None, yf_symbol: str, note: str) -> pd.DataFrame | None:
+    key = stooq_symbol or yf_symbol
+    if stooq_symbol:
+        log(f"{stooq_symbol} ({note}): 嘗試 stooq...")
+        df = fetch_stooq(stooq_symbol)
+        if df is not None and not df.empty:
+            log(f"  stooq 成功，{len(df)} 列")
+            return df
+        log(f"  stooq 失敗或無資料，改用 yfinance 備援 ({yf_symbol})...")
+    else:
+        log(f"{yf_symbol} ({note}): stooq 無此品項，直接用 yfinance...")
 
-    log(f"  stooq 失敗或無資料，改用 yfinance 備援 ({yf_symbol})...")
     df = fetch_yfinance(yf_symbol)
     if df is not None and not df.empty:
-        log(f"  yfinance 備援成功，{len(df)} 列")
+        log(f"  yfinance{'備援' if stooq_symbol else ''}成功，{len(df)} 列")
         return df
 
-    log(f"  {stooq_symbol}: 主源與備援皆失敗，此品項本次略過")
+    log(f"  {key}: 主源與備援皆失敗，此品項本次略過" if stooq_symbol else f"  {key}: yfinance 失敗，此品項本次略過")
     return None
 
 
-def run(symbols: list[tuple[str, str, str]]) -> pd.DataFrame:
+def run(symbols: list[tuple[str | None, str, str]]) -> pd.DataFrame:
     rows = []
     failed = []
     for i, (stooq_symbol, yf_symbol, note) in enumerate(symbols):
+        key = stooq_symbol or yf_symbol
         df = fetch_one(stooq_symbol, yf_symbol, note)
         if df is None:
-            failed.append(stooq_symbol)
+            failed.append(key)
         else:
             df = df[df["date"] >= MIN_DATE]
             for _, r in df.iterrows():
-                rows.append({"date": r["date"], "name": stooq_symbol, "close": float(r["close"])})
+                rows.append({"date": r["date"], "name": key, "close": float(r["close"])})
         if i < len(symbols) - 1:
             time.sleep(REQUEST_INTERVAL_SEC)
 

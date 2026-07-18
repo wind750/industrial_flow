@@ -35,16 +35,22 @@ from compute_rrg import (  # noqa: E402
 )
 
 # 全球資產／市場輪動兩面板同樣重用 compute_global.py 的面板定義與計算核心
-# （build_dataset 內部呼叫的仍是 compute_rrg 的 compute_rs_ratio_momentum／
-# clean_float，本檔不重複實作）。global_prices.csv 若不存在（例如本機尚未
-# 跑過 fetch_global.py），下面 load_global_pivot() 回空表，兩個全球面板會
-# 被跳過，只嵌入台股面板，頁面照常運作。
+# （build_dataset／build_multi_benchmark_dataset 內部呼叫的仍是 compute_rrg
+# 的 compute_rs_ratio_momentum／clean_float，本檔不重複實作）。
+# global_prices.csv 若不存在（例如本機尚未跑過 fetch_global.py），下面
+# load_global_pivot() 回空表，兩個全球面板會被跳過，只嵌入台股面板，頁面
+# 照常運作。
+# 「全球資產」面板 v2 起為雙基準（ACWI＋DXY，見 ASSET_BENCHMARK_SPECS），
+# 改呼叫 build_multi_benchmark_dataset；「市場輪動」面板維持單一基準 ACWI，
+# 沿用原本的 build_dataset（其簽名對舊呼叫端維持相容，未變動這行呼叫）。
 from compute_global import (  # noqa: E402
-    ASSET_PANEL,
+    ASSET_BENCHMARK_SPECS,
+    ASSET_DEFAULT_HIDDEN,
     GLOBAL_CSV_PATH,
     MARKET_PANEL,
 )
 from compute_global import build_dataset as build_global_dataset  # noqa: E402
+from compute_global import build_multi_benchmark_dataset as build_global_assets_dataset  # noqa: E402
 
 DATA_CSV = SCRIPT_DIR / "data" / "sector_indices.csv"
 RRG_HTML_PATH = SCRIPT_DIR / "web" / "rrg.html"
@@ -146,13 +152,15 @@ def load_global_pivot() -> pd.DataFrame:
 @st.cache_data(ttl=3600, show_spinner=False)
 def build_global_datasets(pivot_global: pd.DataFrame) -> list[dict]:
     """組出 window.RRG_DATASETS_GLOBAL 陣列（"全球資產"／"市場輪動"兩個
-    dataset）。實際運算全部呼叫 compute_global.build_dataset（其內部再呼叫
-    compute_rrg 的核心函式），本函式只負責依 pivot 是否有資料決定要不要組。
+    dataset）。實際運算全部呼叫 compute_global.build_multi_benchmark_dataset／
+    build_dataset（其內部再呼叫 compute_rrg 的核心函式），本函式只負責依
+    pivot 是否有資料決定要不要組。「全球資產」面板為雙基準（ACWI＋DXY），
+    「市場輪動」面板維持單一基準 ACWI。
     """
     if pivot_global.empty:
         return []
     return [
-        build_global_dataset(pivot_global, "assets", "全球資產", ASSET_PANEL),
+        build_global_assets_dataset(pivot_global, "assets", "全球資產", ASSET_BENCHMARK_SPECS, ASSET_DEFAULT_HIDDEN),
         build_global_dataset(pivot_global, "markets", "市場輪動", MARKET_PANEL),
     ]
 
@@ -281,7 +289,9 @@ def main() -> None:
             "基準指數、週期、回放範圍、尾巴長度與族群清單等控制項已整合在"
             "下方圖表內，請直接於圖表上操作。\n\n"
             "**面板**：圖表左上角可切換「台股類股／全球資產／市場輪動」三個"
-            "面板；全球兩面板以「全球股票 ACWI」為共用基準。"
+            "面板；「市場輪動」以「全球股票 ACWI」為基準，「全球資產」可切換"
+            "「全球股票 ACWI」與「美元指數 DXY」雙基準（切到 DXY 時清單會排除"
+            "「美元 UUP」自身）。"
         )
 
     payload = build_rrg_payload(pivot)

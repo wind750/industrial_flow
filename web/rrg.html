@@ -558,6 +558,41 @@
       el.periodSelect.value = currentPeriod;
     }
 
+    // 基準切換時重建族群清單：以「成員名稱」為準盡量保留使用者的勾選狀態。
+    // - 新基準下仍存在、且原本勾著的成員 -> 維持勾著。
+    // - 新基準下仍存在、但原本沒勾的成員（曾出現在舊基準清單但被使用者取消）
+    //   -> 維持不勾（尊重使用者先前的選擇，不因換基準而重新顯示）。
+    // - 新基準才有的成員（舊基準清單裡完全沒出現過的名字）-> 依 default_hidden
+    //   決定初始勾選狀態（與 loadDataset 換面板時的邏輯一致）。
+    // 單一基準的資料集（台股類股／市場輪動）benchmarkSelect 只有一個選項，
+    // change 事件不會被觸發，此函式對它們的既有行為完全沒有影響。
+    function rebuildGroupListForBenchmark() {
+      const previousGroups = allGroups;
+      const previousVisible = visibleGroups;
+      const newGroups = Object.keys(data.series[currentBenchmark][currentPeriod] || {});
+      const defaultHidden = new Set(data.default_hidden || []);
+
+      const newVisible = new Set();
+      newGroups.forEach((g) => {
+        if (previousVisible.has(g)) {
+          newVisible.add(g); // 舊基準也有、且原本勾著 -> 保留勾著
+        } else if (previousGroups.includes(g)) {
+          // 舊基準也有、但原本沒勾 -> 保留不勾（不做事）
+        } else {
+          // 新基準才有的新成員 -> 依 default_hidden 決定
+          if (!defaultHidden.has(g)) newVisible.add(g);
+        }
+      });
+
+      allGroups = newGroups;
+      visibleGroups = newVisible;
+      onlySelectedFilter = false;
+      el.selOnlyBtn.classList.remove("active");
+
+      rebuildGroupListDOM();
+      applyListFilter();
+    }
+
     function rebuildGroupListDOM() {
       el.groupList.innerHTML = "";
       rowMap = {};
@@ -689,8 +724,9 @@
 
     el.benchmarkSelect.addEventListener("change", () => {
       currentBenchmark = el.benchmarkSelect.value;
+      rebuildGroupListForBenchmark(); // 基準感知的族群清單重建（保留可保留的勾選狀態）
       playing = false; updatePlayButton();
-      rebuildSlice();
+      rebuildSlice(); // 現況語義：不特別歸零 playhead，交由 rebuildSlice 既有行為決定
     });
     el.periodSelect.addEventListener("change", () => {
       currentPeriod = parseInt(el.periodSelect.value, 10);
