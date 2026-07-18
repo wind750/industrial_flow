@@ -381,6 +381,7 @@
       overflow-y: auto;
     }
     .drawer-handle {
+      position: relative;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -393,6 +394,15 @@
       color: var(--text-dim);
     }
     .drawer-grip { width: 36px; height: 4px; border-radius: 2px; background: var(--border); flex-shrink: 0; }
+    .drawer-showall {
+      position: absolute;
+      right: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      padding: 5px 12px;
+      font-size: 12px;
+      min-height: 32px;
+    }
     #breakoutPanel { padding: 4px 14px 10px; }
     #listHeader button { min-height: 40px; padding: 7px 12px; }
     .group-row { padding: 10px 14px; min-height: 40px; }
@@ -536,6 +546,7 @@
       <div id="drawerHandle" class="drawer-handle" role="button" tabindex="0" aria-expanded="false">
         <span class="drawer-grip" aria-hidden="true"></span>
         <span id="drawerHandleText">族群清單</span>
+        <button id="showAllBtn" class="drawer-showall" type="button" title="顯示全部族群">顯示全部</button>
       </div>
       <div id="breakoutPanel">
         <h3>剛轉強雷達（近5日 改善→領先）</h3>
@@ -741,6 +752,7 @@
       aside: document.getElementById("asideDrawer"),
       drawerHandle: document.getElementById("drawerHandle"),
       drawerHandleText: document.getElementById("drawerHandleText"),
+      showAllBtn: document.getElementById("showAllBtn"),
     };
 
     // ---------- 窄直版模式（手機直向）偵測 ----------
@@ -908,6 +920,17 @@
       allGroups.forEach((g) => { visibleGroups.add(g); rowMap[g].querySelector("input").checked = true; });
       recomputeBounds(); applyListFilter();
     });
+    // 手機抽屜把手上的「顯示全部」快捷：一鍵從精簡預設跳到全顯示（等同全選）。
+    // stopPropagation 避免冒泡到把手觸發抽屜開合。
+    if (el.showAllBtn) {
+      el.showAllBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        allGroups.forEach((g) => { visibleGroups.add(g); if (rowMap[g]) rowMap[g].querySelector("input").checked = true; });
+        onlySelectedFilter = false;
+        if (el.selOnlyBtn) el.selOnlyBtn.classList.remove("active");
+        recomputeBounds(); applyListFilter();
+      });
+    }
     el.selNoneBtn.addEventListener("click", () => {
       allGroups.forEach((g) => { visibleGroups.delete(g); rowMap[g].querySelector("input").checked = false; });
       recomputeBounds(); applyListFilter();
