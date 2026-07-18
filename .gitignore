@@ -4,6 +4,11 @@ data/_smoke*
 web/rrg_data.sample.js
 web/rrg_data.js
 
+# web/rrg_data_global.js 是 fetch_global.py + compute_global.py 的本機/CI 產物
+# （比照 web/rrg_data.js 現行做法，不進版控）；雲端版 streamlit_app.py 是動態
+# 讀 data/global_prices.csv 現算，不依賴這個檔案。
+web/rrg_data_global.js
+
 # Python
 __pycache__/
 *.pyc
@@ -11,5 +16,5 @@ __pycache__/
 # Streamlit 本機執行殘留
 .streamlit/secrets.toml
 
-# 注意：data/raw/ 與 data/sector_indices.csv 為 streamlit_app.py 的資料依賴，
-# 需進版控，不在此排除。
+# 注意：data/raw/、data/sector_indices.csv、data/global_prices.csv 皆為
+# streamlit_app.py 的資料依賴，需進版控，不在此排除。

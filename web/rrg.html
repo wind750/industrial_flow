@@ -326,8 +326,12 @@
 
 <div id="app">
   <header>
-    <h1>台股產業輪動雷達 RRG</h1>
+    <h1 id="pageTitle">台股產業輪動雷達 RRG</h1>
     <span class="asof" id="asOfLabel"></span>
+    <div class="field">
+      <label for="panelSelect">面板</label>
+      <select id="panelSelect"></select>
+    </div>
     <div class="field">
       <label for="benchmarkSelect">基準</label>
       <select id="benchmarkSelect"></select>
@@ -388,6 +392,10 @@
 </div>
 
 <script src="rrg_data.js"></script>
+<!-- 全球資產／市場輪動面板資料（選用）。檔案不存在時瀏覽器會觸發 onerror
+     靜默略過，不影響台股面板；下方 JS 一律先檢查 window.RRG_DATASETS_GLOBAL
+     是否存在再使用，file:// 直開只有台股檔時也完全正常運作。 -->
+<script src="rrg_data_global.js" onerror="window.__RRG_GLOBAL_MISSING__ = true;"></script>
 <script>
 (function () {
   "use strict";
@@ -420,9 +428,24 @@
     }
   }
 
-  const rawData = (typeof window.RRG_DATA !== "undefined") ? window.RRG_DATA : null;
+  // ---------- 組裝多面板 datasets 陣列 ----------
+  // 統一內部表示：把既有 window.RRG_DATA（台股類股，單一資料集，無 id/label）
+  // 包成跟 window.RRG_DATASETS_GLOBAL（全球資產／市場輪動，選用）同樣的
+  // {id, label, as_of, benchmarks, periods, dates, series, default_hidden}
+  // 形狀，合併成一份 datasets 陣列。全球檔缺席（file:// 直開、或 404）時
+  // window.RRG_DATASETS_GLOBAL 就是 undefined，直接略過，台股面板不受影響。
+  const rawTwse = (typeof window.RRG_DATA !== "undefined") ? window.RRG_DATA : null;
+  const datasets = [];
+  if (validateData(rawTwse)) {
+    datasets.push(Object.assign({ id: "twse", label: "台股類股" }, rawTwse));
+  }
+  if (Array.isArray(window.RRG_DATASETS_GLOBAL)) {
+    window.RRG_DATASETS_GLOBAL.forEach((ds) => {
+      if (validateData(ds)) datasets.push(ds);
+    });
+  }
 
-  if (!validateData(rawData)) {
+  if (datasets.length === 0) {
     document.getElementById("dataMissing").classList.add("show");
     return;
   }
@@ -430,7 +453,7 @@
   document.getElementById("app").classList.add("show");
 
   try {
-    init(rawData);
+    init(datasets);
   } catch (e) {
     // 防止未捕捉例外洩漏到 console；改以畫面提示。
     console.warn("RRG 初始化發生非預期錯誤，已攔截：", e && e.message);
@@ -441,7 +464,11 @@
   }
 
   // ================= 主邏輯 =================
-  function init(data) {
+  // init 接收「datasets 陣列」（每個元素形狀等同原本的 window.RRG_DATA，
+  // 外加 id/label）。播放引擎（插值、平滑資料、Catmull-Rom、光暈、hover、
+  // 剛轉強偵測）完全共用，不因面板不同而分岔邏輯；面板切換只換「目前指向
+  // 哪個 dataset」以及由此重建的選單／族群清單／bounds／播放頭。
+  function init(datasets) {
     // 主色（同時作為文字／描邊色，皆通過 WCAG AA 對比驗證）
     const QUADRANT_COLOR = { leading: "#8f5a00", weakening: "#ae4416", lagging: "#4a6288", improving: "#155e8a" };
     // 光暈色（僅用於 shadowColor 發光效果，不承擔對比責任）
@@ -454,13 +481,20 @@
       if (x < 100 && y < 100) return "lagging";
       return "improving";
     }
+    // 去類指數字尾（台股）；全球面板名稱形如「美股 SPY」（中文描述+空格+代碼）
+    // 或「台灣」（已經是短名）——取空格後的最後一段當短名，沒有空格就原樣
+    // 顯示，兩種命名風格共用同一條規則。
     function shortName(name) {
-      return name.endsWith("類指數") ? name.slice(0, -3) : name;
+      if (name.endsWith("類指數")) return name.slice(0, -3);
+      const parts = name.split(" ");
+      return parts.length > 1 ? parts[parts.length - 1] : name;
     }
 
     // ---------- DOM ----------
     const el = {
+      pageTitle: document.getElementById("pageTitle"),
       asOf: document.getElementById("asOfLabel"),
+      panelSelect: document.getElementById("panelSelect"),
       benchmarkSelect: document.getElementById("benchmarkSelect"),
       periodSelect: document.getElementById("periodSelect"),
       rangeSelect: document.getElementById("rangeSelect"),
@@ -484,51 +518,64 @@
       groupList: document.getElementById("groupList"),
     };
 
-    el.asOf.textContent = "資料日期：" + (data.as_of || data.dates[data.dates.length - 1]);
-
-    // ---------- 選項初始化 ----------
-    data.benchmarks.forEach((bm) => {
+    // ---------- 面板選單 ----------
+    datasets.forEach((ds, i) => {
       const opt = document.createElement("option");
-      opt.value = bm; opt.textContent = bm;
-      el.benchmarkSelect.appendChild(opt);
-    });
-    data.periods.forEach((p) => {
-      const opt = document.createElement("option");
-      opt.value = p;
-      opt.textContent = p + "日" + (p === 20 ? "（短線）" : p === 60 ? "（波段）" : p === 120 ? "（長期）" : "");
-      el.periodSelect.appendChild(opt);
+      opt.value = i;
+      opt.textContent = ds.label || ds.id || ("面板" + i);
+      el.panelSelect.appendChild(opt);
     });
 
-    let currentBenchmark = data.benchmarks[0];
-    let currentPeriod = data.periods.includes(60) ? 60 : data.periods[0];
-    el.periodSelect.value = currentPeriod;
-
-    // 族群清單：以第一個 benchmark/period 底下的 key 為準
-    const allGroups = Object.keys(data.series[currentBenchmark][currentPeriod]);
-    const defaultHidden = new Set(data.default_hidden || []);
-    const visibleGroups = new Set(allGroups.filter((g) => !defaultHidden.has(g)));
-
+    // ---------- 當前 dataset 的可變狀態（切面板時由 loadDataset 重建） ----------
+    let data = null;
+    let currentBenchmark = null;
+    let currentPeriod = null;
+    let allGroups = [];
+    let visibleGroups = new Set();
+    let rowMap = {};
     let onlySelectedFilter = false;
 
-    // ---------- 清單 UI ----------
-    const rowMap = {};
-    allGroups.forEach((g) => {
-      const row = document.createElement("label");
-      row.className = "group-row";
-      row.innerHTML =
-        '<input type="checkbox" ' + (visibleGroups.has(g) ? "checked" : "") + '>' +
-        '<span class="dot"></span>' +
-        '<span class="name">' + shortName(g) + '</span>' +
-        '<span class="badge" style="display:none;">轉強</span>';
-      const checkbox = row.querySelector("input");
-      checkbox.addEventListener("change", () => {
-        if (checkbox.checked) visibleGroups.add(g); else visibleGroups.delete(g);
-        recomputeBounds();
-        applyListFilter();
+    function populateBenchmarkPeriodSelects() {
+      el.benchmarkSelect.innerHTML = "";
+      data.benchmarks.forEach((bm) => {
+        const opt = document.createElement("option");
+        opt.value = bm; opt.textContent = bm;
+        el.benchmarkSelect.appendChild(opt);
       });
-      el.groupList.appendChild(row);
-      rowMap[g] = row;
-    });
+      el.periodSelect.innerHTML = "";
+      data.periods.forEach((p) => {
+        const opt = document.createElement("option");
+        opt.value = p;
+        opt.textContent = p + "日" + (p === 20 ? "（短線）" : p === 60 ? "（波段）" : p === 120 ? "（長期）" : "");
+        el.periodSelect.appendChild(opt);
+      });
+      currentBenchmark = data.benchmarks[0];
+      currentPeriod = data.periods.includes(60) ? 60 : data.periods[0];
+      el.benchmarkSelect.value = currentBenchmark;
+      el.periodSelect.value = currentPeriod;
+    }
+
+    function rebuildGroupListDOM() {
+      el.groupList.innerHTML = "";
+      rowMap = {};
+      allGroups.forEach((g) => {
+        const row = document.createElement("label");
+        row.className = "group-row";
+        row.innerHTML =
+          '<input type="checkbox" ' + (visibleGroups.has(g) ? "checked" : "") + '>' +
+          '<span class="dot"></span>' +
+          '<span class="name">' + shortName(g) + '</span>' +
+          '<span class="badge" style="display:none;">轉強</span>';
+        const checkbox = row.querySelector("input");
+        checkbox.addEventListener("change", () => {
+          if (checkbox.checked) visibleGroups.add(g); else visibleGroups.delete(g);
+          recomputeBounds();
+          applyListFilter();
+        });
+        el.groupList.appendChild(row);
+        rowMap[g] = row;
+      });
+    }
 
     function applyListFilter() {
       allGroups.forEach((g) => {
@@ -550,6 +597,40 @@
       onlySelectedFilter = !onlySelectedFilter;
       el.selOnlyBtn.classList.toggle("active", onlySelectedFilter);
       applyListFilter();
+    });
+
+    // ---------- 面板切換 ----------
+    // resetPlayheadToZero：使用者手動切面板時歸零播放頭（規格要求）；首次啟動
+    // 沿用原本台股頁「一開場停在最新一天」的觀感，不因為改走 loadDataset() 這條
+    // 路徑而變成從頭播放——即「現有台股面板功能與觀感完全不變」。
+    function loadDataset(idx, resetPlayheadToZero) {
+      data = datasets[idx];
+      el.panelSelect.value = idx;
+      el.asOf.textContent = "資料日期：" + (data.as_of || data.dates[data.dates.length - 1] || "--");
+
+      populateBenchmarkPeriodSelects();
+
+      // 族群清單：以第一個 benchmark/period 底下的 key 為準
+      allGroups = Object.keys(data.series[currentBenchmark][currentPeriod]);
+      const defaultHidden = new Set(data.default_hidden || []);
+      visibleGroups = new Set(allGroups.filter((g) => !defaultHidden.has(g)));
+      onlySelectedFilter = false;
+      el.selOnlyBtn.classList.remove("active");
+
+      rebuildGroupListDOM();
+      applyListFilter();
+
+      playing = false; updatePlayButton();
+      rebuildSlice(); // 預設停在最新一天（沿用既有行為)
+      if (resetPlayheadToZero) {
+        playIndex = 0;
+        playhead = 0;
+        syncDateUI();
+      }
+    }
+
+    el.panelSelect.addEventListener("change", () => {
+      loadDataset(parseInt(el.panelSelect.value, 10), true);
     });
 
     // ---------- 資料切片 ----------
@@ -1000,9 +1081,10 @@
     }
 
     // ---------- 啟動 ----------
-    applyListFilter();
     resizeCanvas();
-    rebuildSlice();
+    // 預設面板：datasets[0]（台股類股，若存在；否則第一個可用面板）；首次啟動
+    // 不歸零播放頭，維持原本「停在最新一天」的開場畫面。
+    loadDataset(0, false);
     requestAnimationFrame(loop);
   }
 })();

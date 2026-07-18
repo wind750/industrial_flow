@@ -1,20 +1,49 @@
 name: 每日更新產業指數資料
 
-# 週一到週五 UTC 08:30（台北時間 16:30，證交所盤後資料已就緒）
+# 兩個獨立排程：
+#   - 週一到週五 UTC 08:30（台北時間 16:30，證交所盤後資料已就緒）→ 台股類股
+#   - 週一到週五 UTC 22:00（台北時間隔日 06:00，美股收盤後）→ 全球資產／市場輪動
+#
 # 假日／非交易日抓不到資料屬正常情況：fetch_twse_sector.py --update 只抓「今天」
 # 一天，遇到非交易日會被證交所 API 判定為無資料並記錄、略過，不會讓這個
-# workflow 失敗。也保留 workflow_dispatch 供手動觸發（例如回補、測試）。
+# workflow 失敗。也保留 workflow_dispatch 供手動觸發（例如回補、測試），可用
+# target 輸入選擇只跑台股／只跑全球／兩者都跑。
+#
+# 兩個 cron 觸發互不干擾的設計：這個 workflow 有兩個獨立 job（update-twse／
+# update-global），各自用 `github.event.schedule == '<自己的 cron 運算式>'`
+# 當條件——GitHub Actions 對 schedule 事件會把「這次是哪一個 cron 觸發的」
+# 放在 github.event.schedule，所以每次排程觸發只會有一個 job 的條件成立，
+# 另一個 job 直接被跳過（不是失敗），不會有兩邊同時搶跑、互相干擾的問題。
+# 手動觸發（workflow_dispatch）時 github.event.schedule 是空字串，改用
+# target 輸入判斷要跑哪個 job；此時兩個 job 有可能真的同時執行，因此各自
+# 的 git add 都限定在自己負責的檔案範圍（避免互相把對方的異動一起 commit
+# 掉），commit 前也加了 `git pull --rebase` 降低兩邊同時 push 互撞的機率。
+
 on:
   schedule:
     - cron: "30 8 * * 1-5"
-  workflow_dispatch: {}
+    - cron: "0 22 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "手動觸發時要更新哪個資料集"
+        type: choice
+        options:
+          - both
+          - twse
+          - global
+        default: both
 
 permissions:
   contents: write
 
 jobs:
-  update-data:
+  update-twse:
     runs-on: ubuntu-latest
+    if: >-
+      github.event.schedule == '30 8 * * 1-5' ||
+      (github.event_name == 'workflow_dispatch' &&
+       (github.event.inputs.target == 'both' || github.event.inputs.target == 'twse'))
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -30,10 +59,10 @@ jobs:
       - name: 抓取今日產業指數資料
         run: python fetch_twse_sector.py --update
 
-      - name: 檢查 data/ 是否有變更
+      - name: 檢查 data/（台股）是否有變更
         id: git_diff
         run: |
-          git add data/
+          git add data/raw/ data/sector_indices.csv data/non_trading_days.json
           if git diff --cached --quiet; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else
@@ -46,4 +75,48 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git commit -m "chore: 每日產業指數資料更新 $(date -u +%Y-%m-%d)"
+          git pull --rebase origin "${GITHUB_REF_NAME}" || true
+          git push
+
+  update-global:
+    runs-on: ubuntu-latest
+    if: >-
+      github.event.schedule == '0 22 * * 1-5' ||
+      (github.event_name == 'workflow_dispatch' &&
+       (github.event.inputs.target == 'both' || github.event.inputs.target == 'global'))
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install requests pandas yfinance
+
+      - name: 抓取全球資產／市場輪動面板歷史價格
+        run: python fetch_global.py
+
+      - name: 驗算 RRG 座標（資料品質檢查；產物 web/rrg_data_global.js 不進版控）
+        run: python compute_global.py
+
+      - name: 檢查 data/global_prices.csv 是否有變更
+        id: git_diff
+        run: |
+          git add data/global_prices.csv
+          if git diff --cached --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit 並 push 更新
+        if: steps.git_diff.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore: 全球資產／市場輪動資料更新 $(date -u +%Y-%m-%d)"
+          git pull --rebase origin "${GITHUB_REF_NAME}" || true
           git push
