@@ -20,11 +20,16 @@ https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX?date={YYYYMMDD}&type=IND&re
 | `compute_tpex.py` | 讀 `data/tpex_indices.csv`，以「櫃買指數」為單一基準 × 三個週期（20/60/120 日）計算 RRG 座標，輸出 `web/rrg_data_tpex.js` |
 | `fetch_global.py` | 抓取「全球資產」「市場輪動」兩面板用的海外 ETF／指數歷史日線收盤，存成 `data/global_prices.csv`（詳見下方〈全球資產／市場輪動面板〉） |
 | `compute_global.py` | 讀 `data/global_prices.csv`，重用 `compute_rrg.py` 的計算核心，輸出 `web/rrg_data_global.js` |
+| `fetch_stocks.py` | 抓取上市＋上櫃全市場個股日收盤，存原始 JSON 並彙整成 `data/stock_prices.csv`（滾動最近 300 個交易日；詳見下方〈個股雙強排行〉） |
+| `fetch_industry_map.py` | 抓取上市／上櫃公司產業別代碼，對映到本專案既有的類股指數名稱，輸出 `data/industry_map.csv` |
+| `compute_stocks.py` | 讀 `stock_prices.csv`＋`industry_map.csv`＋兩份類股指數 CSV，計算「產業內個股雙強」排行，輸出 `web/rrg_data_stocks.js`／`data/stock_rankings.json` |
 | `update_daily.bat` | 每日排程用：依序執行「抓今天」+「重算」，任一步失敗就回傳非 0 exit code |
 
 `web/rrg.html`（前端頁面）由另一位開發者維護，不屬於本管線範圍；但已支援讀取
 `rrg_data_tpex.js`／`rrg_data_global.js`（若存在）並在同一頁面切換「台股類股／
-上櫃類股／全球資產／市場輪動」四個面板。
+上櫃類股／全球資產／市場輪動」四個面板。`rrg_data_stocks.js`／
+`stock_rankings.json`（個股雙強排行）**目前只有資料層，前端尚未整合**——
+`rrg.html`／`streamlit_app.py` 尚不會讀取或顯示這份資料，屬於下一階段工作。
 
 ## 資料目錄
 
@@ -290,6 +295,118 @@ python compute_global.py     # 計算 RRG 座標，輸出 web/rrg_data_global.js
 `web/rrg_data_global.js` 不進版控（比照 `web/rrg_data.js` 現行做法），本機
 直開 `web/rrg.html` 時若這個檔案不存在，頁面會靜默略過全球面板、只顯示台股
 類股，不會出錯。
+
+## 個股雙強排行
+
+> **這是觀察工具，不是買賣建議，也未經任何回測驗證。** 排行純粹是「相對強度
+> 座標」的機械式排序，不代表個股基本面、未來報酬或任何形式的操作建議；使用
+> 前請自行判斷並承擔風險。本功能目前**只有資料層**，`web/rrg.html` 與
+> `streamlit_app.py` 都還沒有讀取或顯示這份資料——前端整合是下一階段工作。
+
+在既有四面板 RRG（上市 37 類／上櫃 22 類／全球資產／市場輪動）之外，往下鑽一層：
+產業轉強之後，在「該產業內」找出相對自己產業指數更強的個股（以下稱「雙強」：
+產業本身相對大盤轉強＋個股相對產業指數轉強）。計算核心與既有 RRG 面板共用
+`compute_rrg.py` 的 `compute_rs_ratio_momentum()`（含 trailing WMA 平滑、無前視），
+只是把「類股 vs. 大盤」換成「個股 vs. 所屬類股指數」。
+
+### 資料源
+
+- **個股日收盤**（`fetch_stocks.py`）：
+  - 上市：`https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX?date={YYYYMMDD}&type=ALLBUT0999&response=json`
+  - 上櫃：`https://www.tpex.org.tw/www/zh-tw/afterTrading/dailyQuotes?date={民國年/MM/DD}&id=&response=json`
+  - 上櫃端點在本機會間歇性拋出 `SSLCertVerificationError`（Windows 對其憑證鏈結的
+    嚴格驗證問題），已比照另一子專案 `艾略特波浪架構/資金流向/tide_sector_flow.py`
+    的解法，用自訂 `HTTPAdapter` 關閉 `ssl.VERIFY_X509_STRICT` 旗標處理（僅放寬
+    這一項檢查，非停用 SSL 驗證）。
+  - 節流：上市 ≥3.5 秒／請求、上櫃 ≥0.7 秒／請求（皆高於官方要求下限，避免被
+    封鎖）。
+- **產業別對照**（`fetch_industry_map.py`）：
+  - 上市：`https://openapi.twse.com.tw/v1/opendata/t187ap03_L`
+  - 上櫃：`https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O`
+  - 兩者皆回傳兩碼「產業別代碼」，程式內用人工核對表對映到本專案既有的類股
+    指數名稱（`fetch_industry_map.py` 檔案開頭有完整程式化對照表＋人工核對
+    註解），只在週一排程更新（公司產業別變動很慢，不需每日打 API）。
+
+### 滾動 300 個交易日窗
+
+`stock_prices.csv` 只保留最近 300 個交易日（RRG 需 120 日窗＋動能 lookback＋
+trailing WMA 平滑，約需 130 日才穩定，300 留裕度）。抓取採 raw JSON 冪等快取
+（`data/raw_stocks/twse/`、`data/raw_stocks/tpex/`，已存在的日期直接跳過），
+彙整時才從全部 raw 檔案中裁到最近 300 天，重跑 `fetch_stocks.py` 不會重複打 API。
+
+**`data/raw_stocks/` 刻意不進版控**（與 `data/raw/`／`data/raw_tpex/` 的既有
+做法不同，見 `.gitignore` 註解）：TPEx `dailyQuotes` 端點會把整個上櫃市場
+（含近萬筆公司債／可轉債／權證列，不只是我們要的個股）一起回傳，單日原始檔
+約 1.7-2MB，300 天回補下來 `data/raw_stocks/tpex/` 高達 580MB+ ——相較整個
+repo 的 `.git` 目前僅約 9MB，若進版控會讓 repo 體積長期失控。彙整後真正需要
+的 `data/stock_prices.csv`（約 26MB）已進版控；daily 排程只抓「今天」一天，
+不進版控 raw 快取不影響每日更新，只在「需要從零重新回補整段歷史」這種罕見
+情境才需要重新打 API（約 20-25 分鐘，見下方〈每日更新〉）。
+
+### 普通股過濾規則
+
+只保留代號「4 碼純數字、首碼 1-9」（正則 `^[1-9][0-9]{3}$`）：排除 00 開頭的
+ETF／受益證券（如 0050、00679B），也排除 5/6 碼的權證／公司債／可轉債／TDR
+次要代碼。此規則會連帶排除 4 碼存託憑證（DR，如 2330 台積電-DR 系列的 9103、
+9105 等）——這批個股因無對應產業別指數，本來就會在 `industry_map.csv` 中被
+標為 `unmapped`。
+
+### 產業別對映與複合類排除
+
+`fetch_industry_map.py` 把公司產業別代碼對映到本專案面板既有的類股指數名稱。
+上市電子業 8 個細分類（半導體／電腦及週邊設備／光電／通信網路／電子零組件／
+電子通路／資訊服務／其他電子）全部個別對映；但上市的 5 個**複合類**指數
+（水泥窯製／塑膠化工／機電／化學生技醫療／電子工業類指數）**不接個股**——
+因為它們本身是其他細分類的加總，若也對映個股會造成同一檔股票在複合類與細分
+類雙重認列。上櫃「電子工業」同理視為電子類全體的複合／彙總指數，不接個股。
+少數產業（如 TWSE 綜合企業／文化創意業／農業科技業／電子商務，TPEx 食品／
+塑膠／電器電纜／金融保險／油電燃氣／農業科技／運動休閒）因掛牌家數過少，
+證交所／櫃買中心未單獨編製對應類股指數，個股在 `industry_map.csv` 中標記
+`sector_index_name = "unmapped"` 並保留（不刪除），`industry_name` 欄位仍記錄
+查到的產業別供人工核對；2026-07-18 實測覆蓋率：上市 1090 檔中 1080 檔對映
+成功（僅 10 檔 DR unmapped），上櫃 891 檔中 851 檔對映成功（40 檔 unmapped）。
+
+### 流動性過濾與雙強定義
+
+- **流動性門檻**：個股 20 日均成交金額 ≥ 3,000 萬元（`compute_stocks.py` 的
+  `LIQUIDITY_FLOOR_AMOUNT` 常數，可調）才入榜，避免冷門股的雜訊排名。
+- **雙強定義**：個股最新 RS-Ratio（x 座標）≥ 100，即相對自己的產業指數轉強。
+  不看 y（RS-Momentum）——排行只看「現在強不強」，不篩「加速中/減速中」。
+- 每個產業、每個週期（20／60／120 日）各自依 x 降冪取前 10 檔，不足 10 檔就
+  有幾檔列幾檔。
+
+### 輸出格式
+
+`web/rrg_data_stocks.js`（`window.RRG_STOCK_RANKINGS = {...};`，未進版控，本機/CI
+產物）與 `data/stock_rankings.json`（同內容純 JSON，進版控，供 Streamlit／其他
+程式讀取）：
+
+```json
+{
+  "as_of": "2026-07-17",
+  "liquidity_floor": 30000000,
+  "panels": {
+    "twse": {
+      "半導體類指數": {
+        "20": [{"code": "2330", "name": "台積電", "x": 101.2, "y": 100.5, "amt20": 229051751965}],
+        "60": [...],
+        "120": [...]
+      }
+    },
+    "tpex": { "半導體業": { "20": [...], "60": [...], "120": [...] } }
+  }
+}
+```
+
+`amt20` 為 20 日均成交金額（元）。2026-07-18 實測 payload 約 147KB（53 個
+「有個股對映」的產業 × 最多 3 週期 × 最多 10 檔），遠低於 500KB 控制目標。
+
+### 每日更新
+
+併入既有 `update-twse` job（台北時間 16:30）：抓上市／上櫃類股指數 →
+抓上市＋上櫃個股收盤（`fetch_stocks.py --update`）→（僅週一）更新產業別
+對照表 → 重算排行（`compute_stocks.py`），`data/stock_prices.csv`、
+`data/stock_rankings.json`、`data/raw_stocks/` 一併 commit。
 
 ## 依賴
 

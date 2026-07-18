@@ -62,10 +62,27 @@ jobs:
       - name: 抓取今日上櫃類股指數資料
         run: python fetch_tpex_sector.py --update
 
-      - name: 檢查 data/（台股／上櫃）是否有變更
+      - name: 抓取今日上市＋上櫃全市場個股收盤
+        run: python fetch_stocks.py --update
+
+      - name: 更新產業別對照表（只在週一跑；公司產業別變動很慢，不需每日打 API）
+        run: |
+          if [ "$(date -u +%u)" = "1" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            python fetch_industry_map.py
+          else
+            echo "非週一（UTC 曜日 $(date -u +%u)），跳過產業別對照表更新"
+          fi
+
+      - name: 計算個股雙強排行
+        run: python compute_stocks.py
+
+      - name: 檢查 data/（台股／上櫃／個股雙強）是否有變更
         id: git_diff
         run: |
-          git add data/raw/ data/sector_indices.csv data/non_trading_days.json data/tpex_indices.csv data/raw_tpex/
+          git add data/raw/ data/sector_indices.csv data/non_trading_days.json data/tpex_indices.csv data/raw_tpex/ \
+                  data/stock_prices.csv data/industry_map.csv data/stock_rankings.json
+          # 注意：data/raw_stocks/ 刻意不進版控（見 .gitignore 註解——TPEx 個股
+          # 端點原始回應含近萬筆非個股列，體積過大，長期會讓 repo 失控）。
           if git diff --cached --quiet; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else
@@ -77,7 +94,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git commit -m "chore: 每日產業指數資料更新（台股／上櫃）$(date -u +%Y-%m-%d)"
+          git commit -m "chore: 每日產業指數與個股雙強排行資料更新（台股／上櫃）$(date -u +%Y-%m-%d)"
           git pull --rebase origin "${GITHUB_REF_NAME}" || true
           git push
 

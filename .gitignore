@@ -14,6 +14,11 @@ web/rrg_data_global.js
 # data/tpex_indices.csv 現算，不依賴這個檔案。
 web/rrg_data_tpex.js
 
+# web/rrg_data_stocks.js 是 fetch_stocks.py + compute_stocks.py 的本機/CI
+# 產物（比照上面三者現行做法，不進版控）；data/stock_rankings.json 是同內容
+# 的純 JSON 版本，給 Streamlit／其他程式讀取，進版控（見下方註解）。
+web/rrg_data_stocks.js
+
 # Python
 __pycache__/
 *.pyc
@@ -22,4 +27,17 @@ __pycache__/
 .streamlit/secrets.toml
 
 # 注意：data/raw/、data/sector_indices.csv、data/global_prices.csv 皆為
-# streamlit_app.py 的資料依賴，需進版控，不在此排除。
+# streamlit_app.py 的資料依賴，需進版控，不在此排除。同理 data/stock_prices.csv、
+# data/industry_map.csv、data/stock_rankings.json 是個股雙強排行的資料依賴，
+# 也需進版控，不在此排除。
+
+# data/raw_stocks/（fetch_stocks.py 的個股原始回應快取）刻意不進版控，與
+# data/raw/、data/raw_tpex/（類股指數原始回應）的既有做法不同：TPEx
+# dailyQuotes 端點會把整個上櫃市場（含近萬筆公司債/可轉債/權證列）一起回傳，
+# 單日原始檔約 1.7-2MB，300 個交易日回補下來 data/raw_stocks/tpex/ 高達
+# 580MB+（相較之下整個 repo 的 .git 目前僅 ~9MB），長期逐日累積會讓 repo
+# 體積失控。彙整後的 data/stock_prices.csv（唯一真正需要的資料）已進版控
+# 且僅約 26MB，daily 排程只抓「今天」一天，不進版控 raw 快取不影響每日更新
+# 的正確性，只在「需要重新從零回補整段歷史」這種罕見情境下才需要重新打 API
+# （而非從 git 內的舊快取續傳）。
+data/raw_stocks/
