@@ -12,44 +12,30 @@ streamlit_app.py — 台股產業輪動雷達（RRG）雲端版
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
 import pandas as pd
-import plotly.graph_objects as go
 import streamlit as st
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
 
 # 重用 compute_rrg.py 的計算核心與常數（結構為單一輸出用途的 script，
-# 僅其中純函式與常數適合直接 import；互動式切片邏輯在本檔自行實作）。
+# 僅其中純函式與常數適合直接 import；組裝 RRG_DATA 契約的迴圈在本檔自行
+# 實作，但實際運算全部呼叫 compute_rrg.py 的函式，不重複貼上公式邏輯）。
 from compute_rrg import (  # noqa: E402
     BENCHMARKS,
     DEFAULT_HIDDEN,
+    MAX_DATES,
     PERIODS,
+    clean_float,
     compute_rs_ratio_momentum,
 )
 
 DATA_CSV = SCRIPT_DIR / "data" / "sector_indices.csv"
-
-PERIOD_LABELS = {20: "20 日／短線", 60: "60 日／波段", 120: "120 日／長期"}
-RANGE_MONTHS = {"1 個月": 1, "3 個月": 3, "6 個月": 6, "12 個月": 12}
-
-# ---- 太陽龐克配色 ----
-COLOR_LEADING = "#D4A017"      # 領先：太陽金（暖＝比大盤強）
-COLOR_WEAKENING = "#E8703A"    # 弱化：夕陽橘（暖，動能退潮）
-COLOR_LAGGING = "#7C90AD"      # 落後：霧藍（冷＝比大盤弱）
-COLOR_IMPROVING = "#2E9BD6"    # 改善：科技藍（冷，動能翻揚）
-COLOR_TAIL_LINE = "rgba(120,110,90,0.35)"
-COLOR_CROSSHAIR = "rgba(120,110,90,0.55)"
-
-QUADRANT_META = {
-    "leading": ("領先", COLOR_LEADING),
-    "weakening": ("弱化", COLOR_WEAKENING),
-    "lagging": ("落後", COLOR_LAGGING),
-    "improving": ("改善", COLOR_IMPROVING),
-}
+RRG_HTML_PATH = SCRIPT_DIR / "web" / "rrg.html"
 
 
 # --------------------------------------------------------------------------
@@ -70,246 +56,87 @@ def load_pivot() -> pd.DataFrame:
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def compute_all_coords(pivot: pd.DataFrame, benchmark: str, window: int) -> pd.DataFrame:
-    """對所有「類指數」族群計算 rs_ratio / rs_momentum 全歷史序列。
-
-    回傳 long-form DataFrame: date, name, x (rs_ratio), y (rs_momentum)。
+def build_rrg_payload(pivot: pd.DataFrame) -> dict:
+    """比照 compute_rrg.py main() 的資料契約，組出 web/rrg.html 的
+    window.RRG_DATA 結構（as_of / benchmarks / periods / dates / series /
+    default_hidden）。實際的 RS-Ratio／RS-Momentum 運算全部重用
+    compute_rs_ratio_momentum；本函式只負責迴圈組裝與 JSON 友善的清理，
+    不重複實作公式。
     """
+    all_dates = list(pivot.index)
+    if not all_dates:
+        return {
+            "as_of": None,
+            "benchmarks": BENCHMARKS,
+            "periods": PERIODS,
+            "dates": [],
+            "series": {},
+            "default_hidden": DEFAULT_HIDDEN,
+        }
+
     sector_names = sorted(c for c in pivot.columns if c.endswith("類指數"))
-    if benchmark not in pivot.columns or not sector_names:
-        return pd.DataFrame(columns=["date", "name", "x", "y"])
+    output_dates = all_dates[-MAX_DATES:]
+    n_out = len(output_dates)
+    date_labels = [d.strftime("%Y-%m-%d") for d in output_dates]
+    as_of = date_labels[-1]
 
-    benchmark_series = pivot[benchmark]
-    frames = []
-    for sector in sector_names:
-        rs = 100 * pivot[sector] / benchmark_series
-        rs_ratio, rs_momentum = compute_rs_ratio_momentum(rs, window)
-        frames.append(
-            pd.DataFrame(
-                {
-                    "date": pivot.index,
-                    "name": sector,
-                    "x": rs_ratio.values,
-                    "y": rs_momentum.values,
-                }
-            )
+    series: dict[str, dict[str, dict[str, list]]] = {}
+    for benchmark in BENCHMARKS:
+        series[benchmark] = {}
+        benchmark_series = (
+            pivot[benchmark] if benchmark in pivot.columns else pd.Series(index=pivot.index, dtype=float)
         )
-    return pd.concat(frames, ignore_index=True)
+        for window in PERIODS:
+            period_key = str(window)
+            series[benchmark][period_key] = {}
+            for sector in sector_names:
+                rs = 100 * pivot[sector] / benchmark_series
+                rs_ratio, rs_momentum = compute_rs_ratio_momentum(rs, window)
+                rs_ratio_out = rs_ratio.reindex(output_dates)
+                rs_momentum_out = rs_momentum.reindex(output_dates)
 
+                coords = []
+                for i in range(n_out):
+                    x = clean_float(rs_ratio_out.iloc[i])
+                    y = clean_float(rs_momentum_out.iloc[i])
+                    coords.append(None if x is None or y is None else [x, y])
+                series[benchmark][period_key][sector] = coords
 
-def classify_quadrant(x: float, y: float) -> str | None:
-    if pd.isna(x) or pd.isna(y):
-        return None
-    if x >= 100 and y >= 100:
-        return "leading"
-    if x >= 100 and y < 100:
-        return "weakening"
-    if x < 100 and y < 100:
-        return "lagging"
-    return "improving"
-
-
-def find_recently_turned_strong(coords: pd.DataFrame, sectors: list[str]) -> list[str]:
-    """找出最近 5 個交易日內，從「改善」跨入「領先」象限的族群。"""
-    if coords.empty:
-        return []
-    all_dates = sorted(coords["date"].unique())
-    recent_dates = all_dates[-6:]  # 需要相鄰 pair，故取 6 個交易日算 5 段轉換
-    if len(recent_dates) < 2:
-        return []
-
-    result = []
-    for sector in sectors:
-        sub = coords[coords["name"] == sector].set_index("date")
-        cats = []
-        for d in recent_dates:
-            if d in sub.index:
-                row = sub.loc[d]
-                cats.append(classify_quadrant(row["x"], row["y"]))
-            else:
-                cats.append(None)
-        for i in range(1, len(cats)):
-            if cats[i - 1] == "improving" and cats[i] == "leading":
-                result.append(sector)
-                break
-    return result
+    return {
+        "as_of": as_of,
+        "benchmarks": BENCHMARKS,
+        "periods": PERIODS,
+        "dates": date_labels,
+        "series": series,
+        "default_hidden": DEFAULT_HIDDEN,
+    }
 
 
 # --------------------------------------------------------------------------
-# 圖表建構
+# Canvas 頁嵌入組裝
 # --------------------------------------------------------------------------
-def build_figure(
-    coords: pd.DataFrame,
-    sectors: list[str],
-    output_dates: list[pd.Timestamp],
-    tail_len: int,
-    show_labels: bool = True,
-) -> go.Figure:
-    fig = go.Figure()
-
-    if not sectors or not output_dates:
-        fig.update_layout(
-            annotations=[
-                dict(
-                    text="資料不足，尚無法繪製 RRG（歷史資料回補中）",
-                    xref="paper",
-                    yref="paper",
-                    x=0.5,
-                    y=0.5,
-                    showarrow=False,
-                    font=dict(size=16, color="#6b5f4a"),
-                )
-            ],
-            height=600,
-        )
-        return fig
-
-    # 依 (name, date) 建索引方便查找
-    lookup = coords.set_index(["name", "date"])[["x", "y"]]
-
-    def get_xy(sector: str, d: pd.Timestamp) -> tuple[float | None, float | None]:
-        try:
-            row = lookup.loc[(sector, d)]
-            x, y = row["x"], row["y"]
-            if pd.isna(x) or pd.isna(y):
-                return None, None
-            return float(x), float(y)
-        except KeyError:
-            return None, None
-
-    # 計算座標軸範圍（置中於 100,100，對稱留白）
-    valid_x = coords.loc[coords["name"].isin(sectors), "x"].dropna()
-    valid_y = coords.loc[coords["name"].isin(sectors), "y"].dropna()
-    if len(valid_x) and len(valid_y):
-        pad = max(4.0, float(max((valid_x - 100).abs().max(), (valid_y - 100).abs().max())) * 1.15)
-    else:
-        pad = 5.0
-    axis_min, axis_max = 100 - pad, 100 + pad
-
-    def frame_traces(idx: int) -> list[go.Scatter]:
-        d = output_dates[idx]
-        start = max(0, idx - tail_len + 1)
-        window_dates = output_dates[start : idx + 1]
-        traces = []
-        for sector in sectors:
-            xs, ys, colors, sizes, hover_texts = [], [], [], [], []
-            for wd in window_dates:
-                x, y = get_xy(sector, wd)
-                xs.append(x)
-                ys.append(y)
-                cat = classify_quadrant(x, y) if x is not None else None
-                colors.append(QUADRANT_META[cat][1] if cat else "rgba(0,0,0,0)")
-                hover_texts.append(f"{sector}<br>{wd.strftime('%Y-%m-%d')}<br>RS-Ratio: {x:.2f}<br>RS-Momentum: {y:.2f}" if x is not None else "")
-            sizes = [7] * len(xs)
-            if sizes:
-                sizes[-1] = 15
-            # 常駐名稱標籤只掛在最新一點（尾巴其餘點留空），避免整條軌跡都是字
-            point_labels = [""] * len(xs)
-            if point_labels and xs and xs[-1] is not None:
-                point_labels[-1] = sector.replace("類指數", "")
-            traces.append(
-                go.Scatter(
-                    x=xs,
-                    y=ys,
-                    mode="lines+markers+text" if show_labels else "lines+markers",
-                    line=dict(color=COLOR_TAIL_LINE, width=1.5),
-                    marker=dict(color=colors, size=sizes, line=dict(color="rgba(255,255,255,0.6)", width=1)),
-                    name=sector,
-                    text=point_labels,
-                    textposition="top center",
-                    textfont=dict(size=10, color="#5b4a37"),
-                    hovertext=hover_texts,
-                    hoverinfo="text",
-                    showlegend=False,
-                )
-            )
-        return traces
-
-    # 初始畫面顯示最新一個交易日
-    last_idx = len(output_dates) - 1
-    fig.add_traces(frame_traces(last_idx))
-
-    frames = [
-        go.Frame(name=d.strftime("%Y-%m-%d"), data=frame_traces(i))
-        for i, d in enumerate(output_dates)
-    ]
-    fig.frames = frames
-
-    # 十字中心線
-    fig.add_shape(type="line", x0=100, x1=100, y0=axis_min, y1=axis_max, line=dict(color=COLOR_CROSSHAIR, width=1, dash="dot"))
-    fig.add_shape(type="line", x0=axis_min, x1=axis_max, y0=100, y1=100, line=dict(color=COLOR_CROSSHAIR, width=1, dash="dot"))
-
-    # 象限底色
-    fig.add_shape(type="rect", x0=100, x1=axis_max, y0=100, y1=axis_max, fillcolor=COLOR_LEADING, opacity=0.08, line_width=0, layer="below")
-    fig.add_shape(type="rect", x0=100, x1=axis_max, y0=axis_min, y1=100, fillcolor=COLOR_WEAKENING, opacity=0.08, line_width=0, layer="below")
-    fig.add_shape(type="rect", x0=axis_min, x1=100, y0=axis_min, y1=100, fillcolor=COLOR_LAGGING, opacity=0.08, line_width=0, layer="below")
-    fig.add_shape(type="rect", x0=axis_min, x1=100, y0=100, y1=axis_max, fillcolor=COLOR_IMPROVING, opacity=0.08, line_width=0, layer="below")
-
-    label_pad = pad * 0.92
-    fig.add_annotation(x=100 + label_pad, y=100 + label_pad, text="領先", showarrow=False, font=dict(size=14, color=COLOR_LEADING), xanchor="right", yanchor="top")
-    fig.add_annotation(x=100 + label_pad, y=100 - label_pad, text="弱化", showarrow=False, font=dict(size=14, color=COLOR_WEAKENING), xanchor="right", yanchor="bottom")
-    fig.add_annotation(x=100 - label_pad, y=100 - label_pad, text="落後", showarrow=False, font=dict(size=14, color=COLOR_LAGGING), xanchor="left", yanchor="bottom")
-    fig.add_annotation(x=100 - label_pad, y=100 + label_pad, text="改善", showarrow=False, font=dict(size=14, color=COLOR_IMPROVING), xanchor="left", yanchor="top")
-
-    slider_steps = [
-        dict(
-            method="animate",
-            args=[[f.name], dict(mode="immediate", frame=dict(duration=120, redraw=False), transition=dict(duration=100, easing="cubic-in-out"))],
-            label=f.name,
-        )
-        for f in frames
-    ]
-
-    fig.update_layout(
-        height=640,
-        xaxis=dict(title="RS-Ratio", range=[axis_min, axis_max], gridcolor="rgba(120,110,90,0.12)", zeroline=False),
-        yaxis=dict(title="RS-Momentum", range=[axis_min, axis_max], gridcolor="rgba(120,110,90,0.12)", zeroline=False),
-        plot_bgcolor="rgba(255,255,255,0.35)",
-        paper_bgcolor="rgba(0,0,0,0)",
-        font=dict(color="#4a3f2c"),
-        margin=dict(l=20, r=20, t=30, b=20),
-        sliders=[
-            dict(
-                active=last_idx,
-                steps=slider_steps,
-                x=0.05,
-                len=0.9,
-                currentvalue=dict(prefix="日期："),
-            )
-        ],
-        updatemenus=[
-            dict(
-                type="buttons",
-                direction="left",
-                x=0.05,
-                y=1.12,
-                showactive=False,
-                buttons=[
-                    dict(
-                        label="🐢 慢速",
-                        method="animate",
-                        args=[None, dict(frame=dict(duration=900, redraw=False), fromcurrent=True, transition=dict(duration=820, easing="cubic-in-out"))],
-                    ),
-                    dict(
-                        label="▶ 播放",
-                        method="animate",
-                        args=[None, dict(frame=dict(duration=480, redraw=False), fromcurrent=True, transition=dict(duration=430, easing="cubic-in-out"))],
-                    ),
-                    dict(
-                        label="⏩ 快播",
-                        method="animate",
-                        args=[None, dict(frame=dict(duration=160, redraw=False), fromcurrent=True, transition=dict(duration=140, easing="linear"))],
-                    ),
-                    dict(
-                        label="⏸ 暫停",
-                        method="animate",
-                        args=[[None], dict(mode="immediate", frame=dict(duration=0, redraw=False), transition=dict(duration=0))],
-                    ),
-                ],
-            )
-        ],
+@st.cache_data(show_spinner=False)
+def build_rrg_embed_html(as_of: str, rrg_html_mtime: float, _payload: dict) -> str:
+    """把 web/rrg.html 原始碼中的 `<script src="rrg_data.js">` 換成內嵌
+    `window.RRG_DATA = {...}`，組成可直接用 components.html 整頁嵌入的
+    HTML。快取 key 用 as_of＋rrg.html 檔案 mtime（不含 payload 本身，
+    payload 以底線前綴排除雜湊——資料量大，靠 as_of/mtime 已足以判斷是否
+    需要重算），避免改版或換日後吃到舊快取。
+    """
+    raw_html = RRG_HTML_PATH.read_text(encoding="utf-8")
+    payload_json = json.dumps(_payload, ensure_ascii=False)
+    injected = raw_html.replace(
+        '<script src="rrg_data.js"></script>',
+        f"<script>window.RRG_DATA = {payload_json};</script>",
+        1,
     )
-    return fig
+    # iframe 內不需要再出現自己的捲軸：整頁已經是單一視圖，避免雙捲軸
+    injected = injected.replace(
+        "html, body {\n    margin: 0; padding: 0;",
+        "html, body {\n    margin: 0; padding: 0; overflow: hidden;",
+        1,
+    )
+    return injected
 
 
 # --------------------------------------------------------------------------
@@ -375,69 +202,35 @@ def main() -> None:
         st.error("找不到資料檔 data/sector_indices.csv，或檔案內容為空。")
         st.stop()
 
-    available_sectors = sorted(c for c in pivot.columns if c.endswith("類指數"))
-    available_benchmarks = [b for b in BENCHMARKS if b in pivot.columns]
-    if not available_benchmarks:
-        available_benchmarks = BENCHMARKS  # 讓使用者仍可選，計算時會顯示 NaN
-
     with st.sidebar:
-        st.header("控制面板")
-
-        benchmark = st.selectbox("基準指數", available_benchmarks, index=0)
-
-        period = st.select_slider(
-            "週期",
-            options=PERIODS,
-            value=60 if 60 in PERIODS else PERIODS[-1],
-            format_func=lambda w: PERIOD_LABELS.get(w, str(w)),
+        st.header("使用說明")
+        st.markdown(
+            "**四象限判讀**\n\n"
+            "- 🟡 **領先 Leading**（右上）：相對強度、動能皆優於大盤\n"
+            "- 🟠 **弱化 Weakening**（右下）：仍強於大盤，但動能開始減弱\n"
+            "- 🔵 **落後 Lagging**（左下）：相對強度、動能皆弱於大盤\n"
+            "- 🔷 **改善 Improving**（左上）：仍弱於大盤，但動能正在回升\n\n"
+            "族群通常依「改善 → 領先 → 弱化 → 落後」順時針方向在四象限間輪動。\n\n"
+            "**剛轉強**：最近 5 個交易日內，由「改善」象限跨入「領先」象限的"
+            "族群，圖表右側面板會即時標示（⚡ 剛轉強雷達）。\n\n"
+            "基準指數、週期、回放範圍、尾巴長度與族群清單等控制項已整合在"
+            "下方圖表內，請直接於圖表上操作。"
         )
 
-        range_label = st.selectbox("回放範圍", list(RANGE_MONTHS.keys()), index=3)
+    payload = build_rrg_payload(pivot)
 
-        tail_len = st.slider("尾巴長度（交易日）", min_value=5, max_value=60, value=10, step=1)
-
-        show_labels = st.checkbox("顯示族群名稱", value=True, help="在每個點旁標註族群短名；點太擠時可暫時關閉")
-
-        default_sectors = [s for s in available_sectors if s not in DEFAULT_HIDDEN]
-        sectors = st.multiselect("族群", options=available_sectors, default=default_sectors)
-
-    if not sectors:
-        st.warning("請至少選擇一個族群。")
-        st.stop()
-
-    # 全歷史計算（rolling 需要完整序列），之後再依回放範圍裁切輸出日期
-    coords_full = compute_all_coords(pivot, benchmark, period)
-
-    if coords_full.empty:
+    if not payload["dates"]:
         st.warning("目前資料量不足以計算 RRG 座標（歷史資料回補中），請稍後再試。")
         st.stop()
 
-    months = RANGE_MONTHS[range_label]
-    latest_date = pivot.index.max()
-    cutoff = latest_date - pd.DateOffset(months=months)
-    output_dates = [d for d in pivot.index if d >= cutoff]
+    rrg_html_mtime = RRG_HTML_PATH.stat().st_mtime if RRG_HTML_PATH.exists() else 0.0
+    embed_html = build_rrg_embed_html(payload["as_of"], rrg_html_mtime, payload)
+    # st.components.v1.html 已棄用（目前 streamlit 版本會在執行時警告，且已過官方
+    # 移除期限），改用原生 st.iframe：同樣接受原始 HTML 字串直接嵌入，語意等價。
+    st.iframe(embed_html, height=900)
 
-    # 剛轉強清單：以完整歷史（不受回放範圍限制）判斷最近 5 個交易日的轉強
-    turned_strong = find_recently_turned_strong(coords_full, sectors)
-
-    if turned_strong:
-        st.markdown(
-            f'<div class="glass-card">🚀 <b>剛轉強</b>（最近 5 個交易日由「改善」跨入「領先」象限）：'
-            f'{"、".join(turned_strong)}</div>',
-            unsafe_allow_html=True,
-        )
-    else:
-        st.markdown(
-            '<div class="glass-card">目前沒有族群在最近 5 個交易日內剛跨入領先象限。</div>',
-            unsafe_allow_html=True,
-        )
-
-    fig = build_figure(coords_full, sectors, output_dates, tail_len, show_labels)
-    st.plotly_chart(fig, use_container_width=True)
-
-    as_of = latest_date.strftime("%Y-%m-%d")
     st.markdown(
-        f'<div class="radar-footer">資料截至：{as_of} ｜ 資料來源：臺灣證券交易所（TWSE）'
+        f'<div class="radar-footer">資料截至：{payload["as_of"]} ｜ 資料來源：臺灣證券交易所（TWSE）'
         f' ｜ RRG 座標為公開近似算法，非 JdK 原版公式</div>',
         unsafe_allow_html=True,
     )

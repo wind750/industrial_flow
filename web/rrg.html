@@ -556,7 +556,8 @@
     let dateSlice = [];
     let seriesSlice = {}; // group -> array aligned with dateSlice
     let bounds = { xMin: 90, xMax: 110, yMin: 90, yMax: 110 };
-    let playIndex = 0;
+    let playIndex = 0;   // = floor(playhead)；驅動 dateLabel／滑桿／剛轉強偵測（只在 floor 值變化時更新）
+    let playhead = 0;    // 浮點播放頭，範圍 0 ~ dateSlice.length-1，驅動每幀連續滑行
 
     function rebuildSlice() {
       const rangeDays = Math.min(parseInt(el.rangeSelect.value, 10), data.dates.length);
@@ -568,6 +569,7 @@
         seriesSlice[g] = arr.slice(-rangeDays);
       });
       playIndex = dateSlice.length - 1;
+      playhead = playIndex;
       recomputeBounds();
       syncDateSliderRange();
       syncDateUI();
@@ -617,6 +619,7 @@
     });
     el.dateSlider.addEventListener("input", () => {
       playIndex = parseInt(el.dateSlider.value, 10);
+      playhead = playIndex; // 滑桿拖動時 playhead 直接對齊滑桿值
       syncDateUI();
     });
 
@@ -630,19 +633,19 @@
     let playing = false;
     let speed = 1;
     const BASE_INTERVAL = 350; // ms / 交易日 @1x
-    let lastTickTime = 0;
 
     function updatePlayButton() {
       el.playBtn.textContent = playing ? "⏸ 暫停" : "▶ 播放";
     }
     el.playBtn.addEventListener("click", () => {
-      if (!playing && playIndex >= dateSlice.length - 1) playIndex = 0; // 播完後再按重新開始
+      if (!playing && playIndex >= dateSlice.length - 1) { playIndex = 0; playhead = 0; } // 播完後再按重新開始
       playing = !playing;
       updatePlayButton();
     });
     el.resetBtn.addEventListener("click", () => {
       playing = false; updatePlayButton();
       playIndex = 0;
+      playhead = 0;
       syncDateUI();
     });
     function setSpeed(s, btn) {
@@ -726,6 +729,22 @@
     }
     function toX(rect, x) { return rect.x + (x - bounds.xMin) / (bounds.xMax - bounds.xMin) * rect.w; }
     function toY(rect, y) { return rect.y + rect.h - (y - bounds.yMin) / (bounds.yMax - bounds.yMin) * rect.h; }
+
+    // ---------- 連續插值（彗星頭游動） ----------
+    function smoothstep(f) { return f * f * (3 - 2 * f); }
+    function lerp(a, b, t) { return a + (b - a) * t; }
+    // 依浮點播放頭在 arr 上插值出「頭」的位置；floorIdx 必須等於 Math.floor(playhead)。
+    // 兩端皆 null 回傳 null；單端 null 直接回傳有值的一端（不插值）。
+    function interpHead(arr, headPlayhead, floorIdx) {
+      const i0 = floorIdx;
+      const i1 = Math.min(i0 + 1, arr.length - 1);
+      const p0 = arr[i0], p1 = arr[i1];
+      if (!p0 && !p1) return null;
+      if (!p0) return p1;
+      if (!p1) return p0;
+      const f = smoothstep(Math.min(1, Math.max(0, headPlayhead - i0)));
+      return [lerp(p0[0], p1[0], f), lerp(p0[1], p1[1], f)];
+    }
 
     // ---------- 流暢度監測：掉幀自動降級關閉光暈 ----------
     let frameEma = 16.7; // 假設起始 60fps
@@ -827,8 +846,23 @@
           prev = p; prevIdx = i;
         }
 
-        const cur = arr[playIndex];
+        // 頭：插值後的浮點滑行位置；尾巴第一段從最後一個實際頂點連到這個滑行中的頭
+        const cur = interpHead(arr, playhead, playIndex);
         if (!cur) return;
+        if (prev) {
+          const q0 = quadrantOf(cur[0], cur[1]);
+          ctx.strokeStyle = hexToRgba(QUADRANT_COLOR[q0], 0.65); // 最新一段：等同 age=0 的透明度
+          ctx.lineWidth = 1.6 * dpr;
+          if (glowEnabled) {
+            ctx.shadowColor = hexToRgba(QUADRANT_GLOW[q0], 0.7);
+            ctx.shadowBlur = 6;
+          }
+          ctx.beginPath();
+          ctx.moveTo(toX(rect, prev[0]), toY(rect, prev[1]));
+          ctx.lineTo(toX(rect, cur[0]), toY(rect, cur[1]));
+          ctx.stroke();
+          if (glowEnabled) clearShadow();
+        }
         const q = quadrantOf(cur[0], cur[1]);
         const color = QUADRANT_COLOR[q];
         const sx = toX(rect, cur[0]), sy = toY(rect, cur[1]);
@@ -908,29 +942,29 @@
 
     // ---------- 主迴圈 ----------
     function loop(ts) {
+      let dt = 0;
       if (lastFrameTs) {
-        const dt = ts - lastFrameTs;
+        dt = ts - lastFrameTs;
         frameEma = frameEma * 0.9 + dt * 0.1;
         if (glowEnabled && frameEma > GLOW_OFF_MS) glowEnabled = false;
         else if (!glowEnabled && frameEma < GLOW_ON_MS) glowEnabled = true;
       }
       lastFrameTs = ts;
 
-      if (playing) {
-        if (!lastTickTime) lastTickTime = ts;
-        const interval = BASE_INTERVAL / speed;
-        if (ts - lastTickTime >= interval) {
-          lastTickTime = ts;
-          if (playIndex < dateSlice.length - 1) {
-            playIndex++;
-            syncDateUI();
-          } else {
-            playing = false;
-            updatePlayButton();
-          }
+      // 連續插值播放頭：每幀依實際幀間隔 dt 前進，不再逐日跳格
+      if (playing && dt > 0) {
+        const maxHead = dateSlice.length - 1;
+        playhead += dt / (BASE_INTERVAL / speed);
+        if (playhead >= maxHead) {
+          playhead = maxHead;
+          playing = false;
+          updatePlayButton();
         }
-      } else {
-        lastTickTime = 0;
+        const newIdx = Math.min(Math.floor(playhead), maxHead);
+        if (newIdx !== playIndex) {
+          playIndex = newIdx;
+          syncDateUI(); // 只在 floor(playhead) 變化時才更新 dateLabel／滑桿／剛轉強偵測
+        }
       }
       draw(ts);
       requestAnimationFrame(loop);
