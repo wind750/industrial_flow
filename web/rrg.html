@@ -363,7 +363,9 @@
         <div id="tooltip"><div class="tt-name"></div><div class="tt-val"></div></div>
       </div>
       <div id="playerBar">
+        <button id="stepBackBtn" title="上一交易日（鍵盤 ←）">◁ 前一日</button>
         <button id="playBtn" title="播放/暫停">▶ 播放</button>
+        <button id="stepFwdBtn" title="下一交易日（鍵盤 →）">後一日 ▷</button>
         <button id="resetBtn" title="重置到起點">⟲ 重置</button>
         <div class="speedGroup">
           <button id="speed1" class="active">1x</button>
@@ -482,12 +484,11 @@
       return "improving";
     }
     // 去類指數字尾（台股）；全球面板名稱形如「美股 SPY」（中文描述+空格+代碼）
-    // 或「台灣」（已經是短名）——取空格後的最後一段當短名，沒有空格就原樣
-    // 顯示，兩種命名風格共用同一條規則。
+    // 或「台灣」（已經是短名）——取空格前的中文描述當短名，沒有空格就原樣
+    // 顯示；完整名稱（含代碼）保留在 tooltip。
     function shortName(name) {
       if (name.endsWith("類指數")) return name.slice(0, -3);
-      const parts = name.split(" ");
-      return parts.length > 1 ? parts[parts.length - 1] : name;
+      return name.split(" ")[0];
     }
 
     // ---------- DOM ----------
@@ -504,6 +505,8 @@
       canvasWrap: document.getElementById("canvasWrap"),
       tooltip: document.getElementById("tooltip"),
       playBtn: document.getElementById("playBtn"),
+      stepBackBtn: document.getElementById("stepBackBtn"),
+      stepFwdBtn: document.getElementById("stepFwdBtn"),
       resetBtn: document.getElementById("resetBtn"),
       speed1: document.getElementById("speed1"),
       speed2: document.getElementById("speed2"),
@@ -722,6 +725,21 @@
       if (!playing && playIndex >= dateSlice.length - 1) { playIndex = 0; playhead = 0; } // 播完後再按重新開始
       playing = !playing;
       updatePlayButton();
+    });
+    // 手動步進：暫停後逐交易日前進/後退（播放器式手動控制）
+    function stepDay(delta) {
+      playing = false; updatePlayButton();
+      playIndex = Math.max(0, Math.min(dateSlice.length - 1, Math.round(playhead) + delta));
+      playhead = playIndex;
+      syncDateUI();
+    }
+    el.stepBackBtn.addEventListener("click", () => stepDay(-1));
+    el.stepFwdBtn.addEventListener("click", () => stepDay(1));
+    window.addEventListener("keydown", (e) => {
+      const t = e.target;
+      if (t && (t.tagName === "INPUT" || t.tagName === "SELECT" || t.tagName === "TEXTAREA")) return;
+      if (e.key === "ArrowLeft") { stepDay(-1); e.preventDefault(); }
+      else if (e.key === "ArrowRight") { stepDay(1); e.preventDefault(); }
     });
     el.resetBtn.addEventListener("click", () => {
       playing = false; updatePlayButton();
