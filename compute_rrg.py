@@ -9,9 +9,14 @@ compute_rrg.py
 
 公式（公開近似，非 JdK 原版）：
   rs           = 100 * sector_close / benchmark_close
-  rs_ratio     = 100 + (rs  - rolling_mean(rs,  W)) / rolling_std(rs,  W)
-  mom          = rs_ratio.pct_change(5) * 100
-  rs_momentum  = 100 + (mom - rolling_mean(mom, W)) / rolling_std(mom, W)
+  rs_ratio_raw = 100 + (rs  - rolling_mean(rs,  W)) / rolling_std(rs,  W)
+  rs_ratio     = trailing_wma(rs_ratio_raw, SMOOTH_WINDOW)
+  mom          = rs_ratio.pct_change(5) * 100        # 吃平滑後的 rs_ratio
+  mom_raw      = 100 + (mom - rolling_mean(mom, W)) / rolling_std(mom, W)
+  rs_momentum  = trailing_wma(mom_raw, SMOOTH_WINDOW)
+
+trailing_wma 是只用過去資料的線性加權移動平均（權重 1..SMOOTH_WINDOW，最新最重、
+min_periods=1），純粹平滑視覺鋸齒，不引入未來資訊——細節見 README.md。
 
 用法：
   python compute_rrg.py                       # 輸出到預設 web/rrg_data.js
@@ -25,6 +30,7 @@ import json
 import math
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -36,6 +42,10 @@ BENCHMARKS = ["發行量加權股價指數", "臺灣50指數"]
 PERIODS = [20, 60, 120]
 MAX_DATES = 240
 MOM_LOOKBACK = 5
+
+# RS-Ratio / RS-Momentum 平滑層視窗（trailing 線性加權移動平均）。
+# 設 0 或 1 即停用平滑（回到未平滑的原始 zscore 序列）。
+SMOOTH_WINDOW = 4
 
 DEFAULT_HIDDEN = [
     "水泥窯製類指數",
@@ -54,15 +64,39 @@ def clean_float(v: float) -> float | None:
     return round(float(v), 2)
 
 
+def trailing_wma(s: pd.Series, window: int) -> pd.Series:
+    """Trailing 線性加權移動平均（權重 1..window，最新的觀測值權重最高）。
+
+    只使用視窗內「過去到當下」的資料（pandas rolling 預設右對齊、非
+    center=True），對任一時點 t 的輸出只依賴 t 及更早的輸入，不構成前視
+    （lookahead）。min_periods=1：視窗尚未填滿時（例如序列開頭）改用當下
+    可取得的較短視窗，權重相應縮短為 1..n，同樣維持「最新最重」且不觸及
+    未來值。
+
+    window <= 1（含 0）時視為停用平滑，原樣傳回輸入序列。
+    """
+    if not window or window <= 1:
+        return s
+
+    def _wma(x: np.ndarray) -> float:
+        n = len(x)
+        w = np.arange(1, n + 1, dtype=float)
+        return float(np.dot(x, w) / w.sum())
+
+    return s.rolling(window=window, min_periods=1).apply(_wma, raw=True)
+
+
 def compute_rs_ratio_momentum(rs: pd.Series, window: int) -> tuple[pd.Series, pd.Series]:
     rolling_mean = rs.rolling(window).mean()
     rolling_std = rs.rolling(window).std()
     rs_ratio = 100 + (rs - rolling_mean) / rolling_std
+    rs_ratio = trailing_wma(rs_ratio, SMOOTH_WINDOW)  # 平滑層：鏈路下游 mom 吃平滑後的值
 
     mom = rs_ratio.pct_change(MOM_LOOKBACK) * 100
     mom_mean = mom.rolling(window).mean()
     mom_std = mom.rolling(window).std()
     rs_momentum = 100 + (mom - mom_mean) / mom_std
+    rs_momentum = trailing_wma(rs_momentum, SMOOTH_WINDOW)
 
     return rs_ratio, rs_momentum
 

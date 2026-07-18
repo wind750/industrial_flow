@@ -71,12 +71,37 @@ update_daily.bat
 
 ```
 rs           = 100 * sector_close / benchmark_close
-rs_ratio     = 100 + (rs  - rolling_mean(rs,  W)) / rolling_std(rs,  W)
-mom          = rs_ratio 的 5 日變化率 (pct_change(5) * 100)
-rs_momentum  = 100 + (mom - rolling_mean(mom, W)) / rolling_std(mom, W)
+rs_ratio_raw = 100 + (rs  - rolling_mean(rs,  W)) / rolling_std(rs,  W)
+rs_ratio     = trailing_wma(rs_ratio_raw, SMOOTH_WINDOW)
+mom          = rs_ratio 的 5 日變化率 (pct_change(5) * 100)   # 吃平滑後的 rs_ratio
+mom_raw      = 100 + (mom - rolling_mean(mom, W)) / rolling_std(mom, W)
+rs_momentum  = trailing_wma(mom_raw, SMOOTH_WINDOW)
 ```
 
 `W` 為週期（20/60/120 日）。歷史不足、算不出的日期一律填 `null`，不會用估值或 0 填補。
+
+### 平滑層（trailing WMA）
+
+`rs_ratio` 與 `rs_momentum` 各再過一道 **trailing 線性加權移動平均**
+（`compute_rrg.py` 的 `trailing_wma()`），目的是把 zscore 序列的鋸齒感磨掉，
+讓軌跡讀起來更像連續走勢，而不是為了改變訊號本質。
+
+- 視窗常數 `SMOOTH_WINDOW = 4`（`compute_rrg.py` 模組層級），權重
+  `1, 2, ..., SMOOTH_WINDOW`，最新的觀測值權重最高。
+- `min_periods=1`：序列開頭資料不足一整個視窗時，改用當下可取得的較短
+  視窗（權重相應縮短為 `1..n`），仍然只用「當下與更早」的資料。
+- 鏈路順序是 `rs_ratio`（平滑後）→ `mom`（5 日變化率，吃平滑後的
+  `rs_ratio`）→ `rs_momentum`（平滑後）。也就是說 momentum 的平滑效果會
+  疊加在 ratio 的平滑效果之上。
+- **只用過去資料，無前視（lookahead）**：pandas `rolling()` 預設右對齊
+  （trailing），任一時點 `t` 的平滑值只依賴 `t` 及更早的觀測，不會用到
+  未來資料。用「歷史前綴重算 vs. 全量重算，同一天座標應完全一致」可驗證
+  這點。
+- **代價是相位延遲（lag）**：加權移動平均會讓轉折點的反應延後，
+  `SMOOTH_WINDOW=4` 大約對應 2 個交易日的相位延遲（權重集中在最近幾筆，
+  但仍非零延遲）——這是「軌跡變優雅」與「反應變即時」之間刻意的取捨。
+- 要關閉平滑、回到未平滑的原始 zscore 序列：把 `compute_rrg.py` 的
+  `SMOOTH_WINDOW` 改成 `0` 或 `1`（`trailing_wma()` 會直接原樣回傳輸入）。
 
 ## 依賴
 

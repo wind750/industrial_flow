@@ -813,7 +813,7 @@
       ctx.fillText("動能 RS-Momentum ↑", 0, 0);
       ctx.restore();
 
-      // 資料點與尾巴（發光數據流；掉幀時自動關閉光暈以維持流暢）
+      // 資料點與尾巴（Catmull-Rom 曲線發光數據流；掉幀時自動關閉光暈以維持流暢）
       markers = [];
       const startIdx = Math.max(0, playIndex - tailLength + 1);
       allGroups.forEach((g) => {
@@ -821,16 +821,41 @@
         const arr = seriesSlice[g];
         if (!arr) return;
 
-        // 尾巴：逐段畫，愈舊愈透明
-        let prev = null, prevIdx = null;
+        // 頭：插值後的浮點滑行位置（也是曲線最後一段的終點）
+        const cur = interpHead(arr, playhead, playIndex);
+        if (!cur) return;
+
+        // 把尾巴切成連續片段（null 會斷開一段，各段各自做曲線；不跨斷點插值）
+        const runs = [];
+        let curRun = null;
         for (let i = startIdx; i <= playIndex; i++) {
           const p = arr[i];
-          if (!p) { prev = null; prevIdx = null; continue; }
-          if (prev) {
-            const span = Math.max(1, playIndex - startIdx);
-            const age = (playIndex - i) / span; // 0=最新 1=最舊
-            const alpha = 0.10 + (1 - age) * 0.55;
-            const q = quadrantOf(p[0], p[1]);
+          if (!p) { curRun = null; continue; }
+          if (!curRun) { curRun = []; runs.push(curRun); }
+          curRun.push({ idx: i, x: p[0], y: p[1] });
+        }
+        // 若最後一個實際頂點緊接在頭之前，把插值頭接到最後一段尾巴的末端
+        if (curRun && curRun.length && curRun[curRun.length - 1].idx === playIndex) {
+          curRun.push({ idx: playIndex + 1, x: cur[0], y: cur[1], isHead: true });
+        }
+        const span = Math.max(1, playIndex - startIdx);
+        const TENSION = 0.5; // Catmull-Rom → cubic bezier 轉換的張力係數
+        const DEGENERATE_PX = 0.75 * dpr; // 相鄰頂點距離低於此值 → 退化為直線，防 NaN／自交小圈圈
+
+        runs.forEach((run) => {
+          const screenPts = run.map((v) => ({ ...v, sx: toX(rect, v.x), sy: toY(rect, v.y) }));
+
+          // 逐段畫：每段依終點的新舊決定 alpha／光暈，維持沿尾巴的漸層
+          for (let k = 0; k < screenPts.length - 1; k++) {
+            const p0 = screenPts[Math.max(0, k - 1)];
+            const p1 = screenPts[k];
+            const p2 = screenPts[k + 1];
+            const p3 = screenPts[Math.min(screenPts.length - 1, k + 2)];
+
+            const refIdx = p2.isHead ? playIndex : p2.idx;
+            const age = Math.max(0, Math.min(1, (playIndex - refIdx) / span)); // 0=最新 1=最舊
+            const alpha = p2.isHead ? 0.65 : (0.10 + (1 - age) * 0.55);
+            const q = quadrantOf(p2.x, p2.y);
             ctx.strokeStyle = hexToRgba(QUADRANT_COLOR[q], alpha);
             ctx.lineWidth = 1.6 * dpr;
             if (glowEnabled) {
@@ -838,31 +863,35 @@
               ctx.shadowBlur = 6;
             }
             ctx.beginPath();
-            ctx.moveTo(toX(rect, prev[0]), toY(rect, prev[1]));
-            ctx.lineTo(toX(rect, p[0]), toY(rect, p[1]));
+            ctx.moveTo(p1.sx, p1.sy);
+            const segDist = Math.hypot(p2.sx - p1.sx, p2.sy - p1.sy);
+            if (!(segDist >= DEGENERATE_PX)) {
+              // 重合或極近的相鄰頂點：退化為直線段（segDist 為 NaN 時 !(NaN>=x) 亦為 true，一併攔截）
+              ctx.lineTo(p2.sx, p2.sy);
+            } else {
+              const cp1x = p1.sx + (p2.sx - p0.sx) / 6 * TENSION;
+              const cp1y = p1.sy + (p2.sy - p0.sy) / 6 * TENSION;
+              const cp2x = p2.sx - (p3.sx - p1.sx) / 6 * TENSION;
+              const cp2y = p2.sy - (p3.sy - p1.sy) / 6 * TENSION;
+              ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.sx, p2.sy);
+            }
             ctx.stroke();
             if (glowEnabled) clearShadow();
           }
-          prev = p; prevIdx = i;
-        }
 
-        // 頭：插值後的浮點滑行位置；尾巴第一段從最後一個實際頂點連到這個滑行中的頭
-        const cur = interpHead(arr, playhead, playIndex);
-        if (!cur) return;
-        if (prev) {
-          const q0 = quadrantOf(cur[0], cur[1]);
-          ctx.strokeStyle = hexToRgba(QUADRANT_COLOR[q0], 0.65); // 最新一段：等同 age=0 的透明度
-          ctx.lineWidth = 1.6 * dpr;
-          if (glowEnabled) {
-            ctx.shadowColor = hexToRgba(QUADRANT_GLOW[q0], 0.7);
-            ctx.shadowBlur = 6;
-          }
-          ctx.beginPath();
-          ctx.moveTo(toX(rect, prev[0]), toY(rect, prev[1]));
-          ctx.lineTo(toX(rect, cur[0]), toY(rect, cur[1]));
-          ctx.stroke();
-          if (glowEnabled) clearShadow();
-        }
+          // 每個歷史節點的小圓點（頭另外畫大點，這裡略過）
+          screenPts.forEach((v) => {
+            if (v.isHead) return;
+            const age = Math.max(0, Math.min(1, (playIndex - v.idx) / span));
+            const alpha = 0.25 + (1 - age) * 0.55;
+            const q = quadrantOf(v.x, v.y);
+            ctx.fillStyle = hexToRgba(QUADRANT_COLOR[q], alpha);
+            ctx.beginPath();
+            ctx.arc(v.sx, v.sy, 1.8 * dpr, 0, Math.PI * 2);
+            ctx.fill();
+          });
+        });
+
         const q = quadrantOf(cur[0], cur[1]);
         const color = QUADRANT_COLOR[q];
         const sx = toX(rect, cur[0]), sy = toY(rect, cur[1]);
