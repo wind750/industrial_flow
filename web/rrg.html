@@ -290,6 +290,115 @@
   #tailField input[type=range] { accent-color: var(--accent); }
   #tailValue { min-width: 20px; text-align: right; color: var(--text-dim); }
 
+  #settingsBtn { display: none; }
+  /* 桌面／橫版：controlsGroup 這個包裹用的 wrapper 在版面上「隱形」，讓
+     面板/基準/週期/回放/尾巴 五個 .field 直接當 header 的 flex 子項，
+     與改版前逐字相同的排版；只有窄直版 media query 會覆寫成收合下拉面板。 */
+  #controlsGroup { display: contents; }
+  #mobileHint {
+    display: none;
+    position: absolute;
+    top: 8px; right: 10px;
+    font-size: 10.5px;
+    color: var(--text-dim);
+    background: rgba(255, 251, 242, 0.65);
+    padding: 2px 9px;
+    border-radius: 999px;
+    pointer-events: none;
+    z-index: 15;
+    white-space: nowrap;
+  }
+  .drawer-handle { display: none; }
+
+  /* ==================================================================
+     窄直版模式（手機直向）：< 720px 且 portrait。桌面／橫版完全不受影響，
+     以下規則只在此媒體查詢內生效，全部是新增覆寫，不修改上方任何基準規則。
+     ================================================================== */
+  @media (max-width: 720px) and (orientation: portrait) {
+    #app { padding: 8px; gap: 8px; }
+    /* header／aside／canvasWrap／playerBar 都因 backdrop-filter 各自形成獨立
+       stacking context，z-index:auto 時互相比較會落到 DOM 順序（header 雖然
+       在最前面，仍會被之後的 main 內容蓋過）。這裡明確給 header 數字 z-index，
+       確保窄直版展開的「設定」下拉面板一定蓋在圖表／播放列／抽屜之上。 */
+    header { position: relative; padding: 10px 14px; gap: 8px; z-index: 100; }
+    header h1 { font-size: 14px; }
+    header .asof { font-size: 10.5px; }
+
+    /* 面板/基準/週期/回放/尾巴 收進「⚙ 設定」下拉面板；教學鈕維持在外層可見 */
+    #settingsBtn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 40px;
+    }
+    #controlsGroup {
+      display: none;
+      position: absolute;
+      top: calc(100% + 8px);
+      left: 0; right: 0;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 10px;
+      padding: 14px 16px;
+      background: linear-gradient(160deg, var(--panel-strong), var(--panel2));
+      backdrop-filter: blur(18px) saturate(1.2);
+      -webkit-backdrop-filter: blur(18px) saturate(1.2);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      box-shadow: 0 10px 30px var(--shadow-gold);
+      z-index: 90;
+    }
+    #controlsGroup.open { display: flex; }
+    #controlsGroup .field { width: 100%; justify-content: space-between; }
+    #controlsGroup .field select { flex: 1; min-width: 0; margin-left: 8px; }
+    #controlsGroup #tailField { width: 100%; justify-content: space-between; }
+    #controlsGroup #tailField input[type=range] { flex: 1; margin: 0 8px; }
+
+    /* 圖區佔滿寬度，側欄改成下方可收合抽屜（見下方 aside 規則） */
+    main { padding-bottom: 84px; }
+    #canvasWrap { flex: 0 0 auto; height: min(100vw, 55vh); }
+    #mobileHint { display: block; }
+
+    #playerBar { padding: 10px 14px; }
+    #playerBar button { min-height: 44px; padding: 8px 14px; }
+    .speedGroup button { padding: 8px 12px; min-height: 40px; }
+    input[type=range] { height: 32px; }
+    input[type=range]::-webkit-slider-thumb { width: 22px; height: 22px; }
+    input[type=range]::-moz-range-thumb { width: 22px; height: 22px; }
+
+    /* 側欄 -> 固定於底部的可收合抽屜 */
+    aside {
+      position: fixed;
+      left: 10px; right: 10px; bottom: 10px; top: auto;
+      width: auto;
+      max-height: 112px;
+      overflow: hidden;
+      z-index: 60;
+      transition: max-height .3s ease;
+    }
+    aside.drawer-open {
+      max-height: min(72vh, 620px);
+      overflow-y: auto;
+    }
+    .drawer-handle {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      min-height: 44px;
+      cursor: pointer;
+      flex-shrink: 0;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-dim);
+    }
+    .drawer-grip { width: 36px; height: 4px; border-radius: 2px; background: var(--border); flex-shrink: 0; }
+    #breakoutPanel { padding: 4px 14px 10px; }
+    #listHeader button { min-height: 40px; padding: 7px 12px; }
+    .group-row { padding: 10px 14px; min-height: 40px; }
+    .group-row input[type=checkbox] { width: 20px; height: 20px; }
+  }
+
   ::-webkit-scrollbar { width: 8px; }
   ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
   ::-webkit-scrollbar-thumb:hover { background: var(--accent-soft); }
@@ -369,31 +478,34 @@
   <header>
     <h1 id="pageTitle">台股產業輪動雷達 RRG</h1>
     <span class="asof" id="asOfLabel"></span>
-    <div class="field">
-      <label for="panelSelect">面板</label>
-      <select id="panelSelect"></select>
-    </div>
-    <div class="field">
-      <label for="benchmarkSelect">基準</label>
-      <select id="benchmarkSelect"></select>
-    </div>
-    <div class="field">
-      <label for="periodSelect">週期</label>
-      <select id="periodSelect"></select>
-    </div>
-    <div class="field">
-      <label for="rangeSelect">回放範圍</label>
-      <select id="rangeSelect">
-        <option value="21">1個月</option>
-        <option value="63">3個月</option>
-        <option value="126" selected>半年</option>
-        <option value="240">1年</option>
-      </select>
-    </div>
-    <div id="tailField">
-      <label for="tailSlider">尾巴長度</label>
-      <input type="range" id="tailSlider" min="5" max="60" value="10" step="1">
-      <span id="tailValue">10</span>
+    <button id="settingsBtn" type="button" title="設定" aria-expanded="false">⚙ 設定</button>
+    <div id="controlsGroup">
+      <div class="field">
+        <label for="panelSelect">面板</label>
+        <select id="panelSelect"></select>
+      </div>
+      <div class="field">
+        <label for="benchmarkSelect">基準</label>
+        <select id="benchmarkSelect"></select>
+      </div>
+      <div class="field">
+        <label for="periodSelect">週期</label>
+        <select id="periodSelect"></select>
+      </div>
+      <div class="field">
+        <label for="rangeSelect">回放範圍</label>
+        <select id="rangeSelect">
+          <option value="21">1個月</option>
+          <option value="63">3個月</option>
+          <option value="126" selected>半年</option>
+          <option value="240">1年</option>
+        </select>
+      </div>
+      <div id="tailField">
+        <label for="tailSlider">尾巴長度</label>
+        <input type="range" id="tailSlider" min="5" max="60" value="10" step="1">
+        <span id="tailValue">10</span>
+      </div>
     </div>
     <button id="tutorialBtn" type="button" title="新手教學">？教學</button>
   </header>
@@ -403,6 +515,7 @@
       <div id="canvasWrap">
         <canvas id="rrgCanvas"></canvas>
         <div id="tooltip"><div class="tt-name"></div><div class="tt-val"></div></div>
+        <div id="mobileHint">📱 橫放手機或用電腦看更清楚</div>
       </div>
       <div id="playerBar">
         <button id="stepBackBtn" title="上一交易日（鍵盤 ←）">◁ 前一日</button>
@@ -419,7 +532,11 @@
       </div>
     </div>
 
-    <aside>
+    <aside id="asideDrawer">
+      <div id="drawerHandle" class="drawer-handle" role="button" tabindex="0" aria-expanded="false">
+        <span class="drawer-grip" aria-hidden="true"></span>
+        <span id="drawerHandleText">族群清單</span>
+      </div>
       <div id="breakoutPanel">
         <h3>剛轉強雷達（近5日 改善→領先）</h3>
         <div id="breakoutList"></div>
@@ -611,7 +728,71 @@
       selNoneBtn: document.getElementById("selNoneBtn"),
       selOnlyBtn: document.getElementById("selOnlyBtn"),
       groupList: document.getElementById("groupList"),
+      settingsBtn: document.getElementById("settingsBtn"),
+      controlsGroup: document.getElementById("controlsGroup"),
+      aside: document.getElementById("asideDrawer"),
+      drawerHandle: document.getElementById("drawerHandle"),
+      drawerHandleText: document.getElementById("drawerHandleText"),
     };
+
+    // ---------- 窄直版模式（手機直向）偵測 ----------
+    // 斷點與 CSS media query 完全一致：< 720px 且 portrait。resize／
+    // orientationchange 時由 matchMedia 的 change 事件重新評估。桌面／橫版
+    // (isNarrow=false) 完全不觸發下方任何窄直版專屬邏輯。
+    var narrowMQ = window.matchMedia("(max-width: 720px) and (orientation: portrait)");
+    var isNarrow = narrowMQ.matches;
+    var narrowPresetEverApplied = false; // 只在「首次進入」窄直版模式時（非面板切換）套用一次精簡預設
+
+    function handleNarrowChange(e) {
+      var nowNarrow = e.matches;
+      if (nowNarrow && !isNarrow) {
+        narrowPresetEverApplied = false; // 重新進入窄直版 -> 視為新的「首次進入」
+      }
+      isNarrow = nowNarrow;
+      if (isNarrow && !narrowPresetEverApplied) {
+        applyNarrowDensityPreset();
+        narrowPresetEverApplied = true;
+      }
+    }
+    if (narrowMQ.addEventListener) narrowMQ.addEventListener("change", handleNarrowChange);
+    else if (narrowMQ.addListener) narrowMQ.addListener(handleNarrowChange); // 舊版 Safari 相容
+
+    // 設定下拉面板（窄直版把 面板/基準/週期/回放/尾巴 收進這裡）
+    if (el.settingsBtn && el.controlsGroup) {
+      el.settingsBtn.addEventListener("click", function () {
+        var open = el.controlsGroup.classList.toggle("open");
+        el.settingsBtn.setAttribute("aria-expanded", open ? "true" : "false");
+        el.settingsBtn.classList.toggle("active", open);
+      });
+      document.addEventListener("click", function (e) {
+        if (!el.controlsGroup.classList.contains("open")) return;
+        if (el.controlsGroup.contains(e.target) || el.settingsBtn.contains(e.target)) return;
+        el.controlsGroup.classList.remove("open");
+        el.settingsBtn.setAttribute("aria-expanded", "false");
+        el.settingsBtn.classList.remove("active");
+      });
+    }
+
+    // 底部抽屜（窄直版把族群清單／剛轉強面板收成可收合抽屜）
+    if (el.drawerHandle && el.aside) {
+      el.drawerHandle.addEventListener("click", function () {
+        var open = el.aside.classList.toggle("drawer-open");
+        el.drawerHandle.setAttribute("aria-expanded", open ? "true" : "false");
+        updateDrawerHandleText();
+      });
+      el.drawerHandle.addEventListener("keydown", function (e) {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); el.drawerHandle.click(); }
+      });
+    }
+    function updateDrawerHandleText() {
+      if (!el.drawerHandleText) return;
+      if (el.aside.classList.contains("drawer-open")) {
+        el.drawerHandleText.textContent = "收起 ▾";
+      } else {
+        var n = breakoutSet.size;
+        el.drawerHandleText.textContent = "族群清單 ▴" + (n > 0 ? "・⚡剛轉強 " + n : "");
+      }
+    }
 
     // ---------- 面板選單 ----------
     datasets.forEach((ds, i) => {
@@ -757,11 +938,55 @@
         playhead = 0;
         syncDateUI();
       }
+      // 窄直版：切換面板時一律重新套用精簡預設（每個面板的族群組成不同，
+      // 桌面／橫版的 default_hidden 邏輯完全不受影響——只在 isNarrow 時執行）。
+      if (isNarrow) applyNarrowDensityPreset();
     }
 
     el.panelSelect.addEventListener("change", () => {
       loadDataset(parseInt(el.panelSelect.value, 10), true);
     });
+
+    // ---------- 窄直版顯示密度精簡預設 ----------
+    // 可見族群＝剛轉強成員 ∪ 當前領先象限（x>=100,y>=100）成員；不足 5 個
+    // 就依「離大盤最遠」（RS-Ratio+RS-Momentum 偏離 100 的加總）補到約 8 個
+    // 最強的。只影響 visibleGroups（使用者仍可在抽屜內勾回其他族群），完全
+    // 不影響桌面／橫版的 default_hidden 邏輯。
+    function applyNarrowDensityPreset() {
+      if (!allGroups.length) return;
+      const leadingSet = new Set();
+      allGroups.forEach((g) => {
+        const arr = seriesSlice[g];
+        const cur = arr && arr[playIndex];
+        if (cur && cur[0] >= 100 && cur[1] >= 100) leadingSet.add(g);
+      });
+      const picked = new Set();
+      breakoutSet.forEach((g) => picked.add(g));
+      leadingSet.forEach((g) => picked.add(g));
+      if (picked.size < 5) {
+        const scored = allGroups
+          .filter((g) => !picked.has(g))
+          .map((g) => {
+            const arr = seriesSlice[g];
+            const cur = arr && arr[playIndex];
+            const score = cur ? (cur[0] - 100) + (cur[1] - 100) : -Infinity;
+            return { g, score };
+          })
+          .sort((a, b) => b.score - a.score);
+        for (const item of scored) {
+          if (picked.size >= 8) break;
+          if (item.score === -Infinity) break;
+          picked.add(item.g);
+        }
+      }
+      visibleGroups = new Set(Array.from(picked).filter((g) => allGroups.includes(g)));
+      allGroups.forEach((g) => {
+        const cb = rowMap[g] && rowMap[g].querySelector("input");
+        if (cb) cb.checked = visibleGroups.has(g);
+      });
+      recomputeBounds();
+      applyListFilter();
+    }
 
     // ---------- 資料切片 ----------
     let dateSlice = [];
@@ -769,6 +994,7 @@
     let bounds = { xMin: 90, xMax: 110, yMin: 90, yMax: 110 };
     let playIndex = 0;   // = floor(playhead)；驅動 dateLabel／滑桿／剛轉強偵測（只在 floor 值變化時更新）
     let playhead = 0;    // 浮點播放頭，範圍 0 ~ dateSlice.length-1，驅動每幀連續滑行
+    let touchTooltipGroup = null; // 觸控 tap 目前釘住顯示 tooltip 的族群（桌面 hover 不使用）
 
     function rebuildSlice() {
       const rangeDays = Math.min(parseInt(el.rangeSelect.value, 10), data.dates.length);
@@ -800,6 +1026,9 @@
       const padX = Math.max((xMax - xMin) * 0.15, 1.5);
       const padY = Math.max((yMax - yMin) * 0.15, 1.5);
       bounds = { xMin: xMin - padX, xMax: xMax + padX, yMin: yMin - padY, yMax: yMax + padY };
+      // 可見族群變動後畫面即將改變，先關掉可能已失效的 tooltip（觸控 tap 釘住的情況）
+      el.tooltip.style.display = "none";
+      touchTooltipGroup = null;
     }
 
     function syncDateSliderRange() {
@@ -927,6 +1156,7 @@
         row.querySelector(".badge").style.display = isB ? "inline-block" : "none";
       });
       breakoutSet = new Set(breakoutGroups);
+      updateDrawerHandleText(); // 窄直版抽屜把手上的「剛轉強 N」摘要隨之更新（桌面版把手本身不顯示，無副作用）
     }
     let breakoutSet = new Set();
 
@@ -1174,27 +1404,56 @@
       return "rgba(" + r + "," + g + "," + b + "," + alpha + ")";
     }
 
-    // ---------- Hover ----------
-    el.canvas.addEventListener("mousemove", (e) => {
+    // ---------- Hover / 觸控命中 ----------
+    // findNearestMarker：桌面 mousemove 與手機 touchstart 共用同一套命中邏輯，
+    // 只有命中半徑不同（觸控手指比游標粗，半徑放寬）。
+    function findNearestMarker(clientX, clientY, radiusPx) {
       const rect = el.canvas.getBoundingClientRect();
-      const mx = e.clientX - rect.left, my = e.clientY - rect.top;
-      let best = null, bestD = 14; // px 閾值
+      const mx = clientX - rect.left, my = clientY - rect.top;
+      let best = null, bestD = radiusPx;
       for (const m of markers) {
         const d = Math.hypot(m.sx - mx, m.sy - my);
         if (d < bestD) { bestD = d; best = m; }
       }
-      if (best) {
-        el.tooltip.style.display = "block";
-        el.tooltip.style.left = (mx + 14) + "px";
-        el.tooltip.style.top = (my + 10) + "px";
-        el.tooltip.querySelector(".tt-name").textContent = best.group;
-        el.tooltip.querySelector(".tt-val").textContent =
-          "RS-Ratio " + best.x.toFixed(2) + " ／ RS-Momentum " + best.y.toFixed(2);
-      } else {
-        el.tooltip.style.display = "none";
-      }
+      return { best, mx, my };
+    }
+    function showTooltip(best, mx, my) {
+      el.tooltip.style.display = "block";
+      const wrapRect = el.canvasWrap.getBoundingClientRect();
+      const ttGuessW = 190, ttGuessH = 46;
+      let left = mx + 14, top = my + 10;
+      if (left + ttGuessW > wrapRect.width) left = Math.max(4, mx - ttGuessW - 6);
+      if (top + ttGuessH > wrapRect.height) top = Math.max(4, my - ttGuessH - 6);
+      el.tooltip.style.left = left + "px";
+      el.tooltip.style.top = top + "px";
+      el.tooltip.querySelector(".tt-name").textContent = best.group;
+      el.tooltip.querySelector(".tt-val").textContent =
+        "RS-Ratio " + best.x.toFixed(2) + " ／ RS-Momentum " + best.y.toFixed(2);
+    }
+    el.canvas.addEventListener("mousemove", (e) => {
+      const { best, mx, my } = findNearestMarker(e.clientX, e.clientY, 14); // px 閾值，維持桌面既有行為
+      if (best) showTooltip(best, mx, my); else el.tooltip.style.display = "none";
     });
     el.canvas.addEventListener("mouseleave", () => { el.tooltip.style.display = "none"; });
+
+    // 手機無 hover：tap 最近的點顯示 tooltip；再點同一點或點空白處關閉；
+    // 點別的點則切換。桌面滑鼠 hover 行為（上方）完全不受影響。
+    el.canvas.addEventListener("touchstart", (e) => {
+      if (e.touches.length !== 1) return;
+      const t = e.touches[0];
+      const { best, mx, my } = findNearestMarker(t.clientX, t.clientY, 26); // 觸控命中半徑放寬
+      if (best && touchTooltipGroup === best.group) {
+        touchTooltipGroup = null;
+        el.tooltip.style.display = "none";
+      } else if (best) {
+        touchTooltipGroup = best.group;
+        showTooltip(best, mx, my);
+      } else {
+        touchTooltipGroup = null;
+        el.tooltip.style.display = "none";
+      }
+      e.preventDefault();
+    }, { passive: false });
 
     // ---------- 主迴圈 ----------
     function loop(ts) {
@@ -1230,7 +1489,9 @@
     resizeCanvas();
     // 預設面板：datasets[0]（台股類股，若存在；否則第一個可用面板）；首次啟動
     // 不歸零播放頭，維持原本「停在最新一天」的開場畫面。
-    loadDataset(0, false);
+    loadDataset(0, false); // loadDataset 內部已在 isNarrow 時套用一次精簡預設
+    if (isNarrow) narrowPresetEverApplied = true;
+    updateDrawerHandleText();
     requestAnimationFrame(loop);
   }
 })();

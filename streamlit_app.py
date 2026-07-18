@@ -369,7 +369,13 @@ def main() -> None:
     )
     # st.components.v1.html 已棄用（目前 streamlit 版本會在執行時警告，且已過官方
     # 移除期限），改用原生 st.iframe：同樣接受原始 HTML 字串直接嵌入，語意等價。
-    st.iframe(embed_html, height=900)
+    # 高度從 900 降到 780：rrg.html 內部用 100vh 撐滿自己的 iframe 視窗，這個
+    # 數字同時決定 CSS 的 max-width:720px + orientation:portrait 斷點是否成立
+    # （手機版 iframe 寬度通常 <720px，780 高 > 寬 -> portrait 成立 -> 觸發窄
+    # 直版佈局；桌面版 iframe 寬度遠大於 720，斷點不成立，維持原本左右分欄）。
+    # 780 在窄直版堆疊佈局下已足夠放下 header＋圖表＋播放列＋抽屜把手，也比
+    # 900 更貼近手機瀏覽器實際可視高度，減少手機上需要額外下拉的空白。
+    st.iframe(embed_html, height=780)
 
     footer_bits = [f"台股資料截至：{payload['as_of']}"]
     if global_as_of:
