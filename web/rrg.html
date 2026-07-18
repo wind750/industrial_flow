@@ -195,6 +195,7 @@
   }
   #tooltip .tt-name { font-weight: 700; margin-bottom: 2px; color: var(--accent); }
   #tooltip .tt-val { color: var(--text-dim); }
+  #tooltip .tt-hint { margin-top: 3px; font-size: 11px; color: var(--accent); font-weight: 600; }
 
   #playerBar {
     margin-top: 12px;
@@ -280,6 +281,13 @@
     box-shadow: 0 0 4px rgba(0,0,0,0.15);
   }
   .group-row .name { flex: 1; color: var(--text); }
+  .group-row .name.has-drill { cursor: pointer; }
+  .group-row .name .drill-icon {
+    color: var(--accent);
+    font-size: 11px;
+    margin-left: 3px;
+    opacity: .8;
+  }
   .group-row .badge {
     font-size: 10px; color: var(--weakening); border: 1px solid var(--weakening);
     border-radius: 4px; padding: 0 4px;
@@ -407,6 +415,13 @@
     #listHeader button { min-height: 40px; padding: 7px 12px; }
     .group-row { padding: 10px 14px; min-height: 40px; }
     .group-row input[type=checkbox] { width: 20px; height: 20px; }
+
+    /* 雙強個股下鑽卡片：窄直版全寬呈現 */
+    #stockDrilldownOverlay { padding: 10px; }
+    #stockDrilldownCard { max-width: none; width: 100%; padding: 22px 16px 24px; border-radius: 20px; max-height: 90vh; }
+    #stockDrilldownCard h2 { font-size: 16px; }
+    #stockDrilldownTable { font-size: 12px; }
+    #stockDrilldownTable th, #stockDrilldownTable td { padding: 6px 5px; }
   }
 
   ::-webkit-scrollbar { width: 8px; }
@@ -453,6 +468,52 @@
   }
   #tutorialCard ul { margin: 6px 0; padding-left: 18px; }
   #tutorialCard li { margin-bottom: 6px; }
+
+  /* ---- 雙強個股下鑽卡片（沿用教學浮層的玻璃卡樣式與開閉機制） ---- */
+  #stockDrilldownOverlay {
+    display: none;
+    position: fixed; inset: 0;
+    align-items: center; justify-content: center;
+    background: rgba(46, 36, 24, 0.45);
+    backdrop-filter: blur(2px);
+    padding: 24px;
+    z-index: 1000;
+  }
+  #stockDrilldownOverlay.show { display: flex; }
+  #stockDrilldownCard {
+    position: relative;
+    max-width: 640px;
+    width: 100%;
+    max-height: 86vh;
+    overflow-y: auto;
+    padding: 30px 32px;
+    background: linear-gradient(160deg, var(--panel-strong), var(--panel2));
+    backdrop-filter: blur(18px) saturate(1.2);
+    -webkit-backdrop-filter: blur(18px) saturate(1.2);
+    border: 1px solid var(--border);
+    border-radius: 30px 14px 34px 12px;
+    box-shadow: 0 12px 40px var(--shadow-gold), inset 0 1px 0 rgba(255,255,255,0.6);
+  }
+  #stockDrilldownCard h2 { margin: 0 0 4px; font-size: 19px; color: var(--accent); }
+  #stockDrilldownCard .dd-subtitle { margin: 0 0 16px; font-size: 12.5px; color: var(--text-dim); line-height: 1.6; }
+  #stockDrilldownCloseBtn {
+    position: absolute; top: 14px; right: 16px;
+    width: 30px; height: 30px; padding: 0;
+    border-radius: 50%;
+    font-size: 16px; line-height: 1;
+  }
+  #stockDrilldownTableWrap { overflow-x: auto; }
+  #stockDrilldownTable { width: 100%; border-collapse: collapse; font-size: 13px; }
+  #stockDrilldownTable th, #stockDrilldownTable td {
+    padding: 7px 8px;
+    text-align: right;
+    border-bottom: 1px solid var(--border-soft);
+    white-space: nowrap;
+  }
+  #stockDrilldownTable th:nth-child(2), #stockDrilldownTable td:nth-child(2) { text-align: left; }
+  #stockDrilldownTable thead th { color: var(--text-dim); font-weight: 600; font-size: 12px; }
+  #stockDrilldownTable tbody tr.dd-strong { background: rgba(217,165,68,0.20); }
+  #stockDrilldownFooter { margin-top: 12px; font-size: 11px; color: var(--text-dim); line-height: 1.7; }
 </style>
 </head>
 <body>
@@ -606,10 +667,31 @@
         </ul>
       </li>
       <li><b>最值錢的訊號</b>：從「改善」跨進「領先」＝原本沒人要的族群資金開始進來，畫面會自動標「⚡ 剛轉強」。</li>
-      <li><b>怎麼操作</b>：按 ▶ 播放看資金這幾個月怎麼流動，尾巴是走過的路；覺得快可調慢速，想逐日看用「前一日／後一日」；上方可切三個面板——台股類股、全球資產、市場輪動；週期短用 20 日、看大方向用 120 日。</li>
+      <li><b>怎麼操作</b>：按 ▶ 播放看資金這幾個月怎麼流動，尾巴是走過的路；覺得快可調慢速，想逐日看用「前一日／後一日」；上方可切四個面板——台股類股、上櫃類股、全球資產、市場輪動；週期短用 20 日、看大方向用 120 日；點產業名稱還能看該產業的「雙強個股」名單。</li>
       <li><b>建議看法</b>：先看「市場輪動」知道錢在哪國 → 再看「全球資產」知道市場愛冒險還是避險 → 最後回「台股類股」挑主流族群。</li>
       <li style="color:var(--text-dim);"><b>小提醒</b>：資料每天盤後自動更新，開網頁就是最新的；這是觀察資金流向的工具，不是買賣建議。</li>
     </ol>
+  </div>
+</div>
+
+<!-- 雙強個股下鑽卡片：族群清單「▸」或 canvas 上的產業點被點擊時開啟；
+     ×/遮罩/Esc 關閉，機制與上方教學浮層相同（各自獨立的 overlay/card，
+     不共用 DOM，避免互相干擾）。只有 twse／tpex 面板、且該產業在
+     window.RRG_STOCK_RANKINGS 中有資料時才會被開啟，見下方主邏輯。 -->
+<div id="stockDrilldownOverlay">
+  <div id="stockDrilldownCard" class="glass-card">
+    <button id="stockDrilldownCloseBtn" aria-label="關閉">×</button>
+    <h2 id="ddTitle">雙強個股 TOP 10</h2>
+    <p class="dd-subtitle" id="ddSubtitle"></p>
+    <div id="stockDrilldownTableWrap">
+      <table id="stockDrilldownTable">
+        <thead>
+          <tr><th>代號</th><th>名稱</th><th>RS-Ratio</th><th>RS-Momentum</th><th>20日均額(億)</th></tr>
+        </thead>
+        <tbody id="ddTbody"></tbody>
+      </table>
+    </div>
+    <div id="stockDrilldownFooter">流動性門檻：20日均成交金額 ≥ 3,000 萬｜觀察工具，未經回測驗證，非買賣建議</div>
   </div>
 </div>
 
@@ -621,6 +703,10 @@
 <!-- 上櫃類股面板資料（選用）。同樣以 onerror 靜默略過缺檔情況，不影響其他
      面板；下方 JS 先檢查 window.RRG_DATASET_TPEX 是否存在再使用。 -->
 <script src="rrg_data_tpex.js" onerror="window.__RRG_TPEX_MISSING__ = true;"></script>
+<!-- 個股雙強排行資料（選用）。同樣以 onerror 靜默略過缺檔情況，不影響任何
+     既有面板功能；下方 JS 先檢查 window.RRG_STOCK_RANKINGS 是否存在再使用，
+     缺檔時「▸」下鑽入口與 tooltip 提示都不會出現，其餘功能完全不受影響。 -->
+<script src="rrg_data_stocks.js" onerror="window.__RRG_STOCKS_MISSING__ = true;"></script>
 <script>
 (function () {
   "use strict";
@@ -719,6 +805,27 @@
       return name.split(" ")[0];
     }
 
+    // ---------- 個股雙強排行資料（選用；file:// 直開缺檔時 window.RRG_STOCK_RANKINGS
+    // 為 undefined，以下所有下鑽入口一律回傳 null／不顯示，不影響其他任何功能）----------
+    const stockRankings =
+      (typeof window.RRG_STOCK_RANKINGS === "object" && window.RRG_STOCK_RANKINGS &&
+       window.RRG_STOCK_RANKINGS.panels && typeof window.RRG_STOCK_RANKINGS.panels === "object")
+        ? window.RRG_STOCK_RANKINGS
+        : null;
+
+    // 只有台股類股（twse）／上櫃類股（tpex）面板才有個股對映；全球資產／市場輪動
+    // 面板與上市 5 個複合類指數（水泥窯製/塑膠化工/機電/化學生技醫療/電子工業類指數，
+    // 上櫃電子工業同理）在 stockRankings.panels[id] 底下本來就沒有對應 key，直接回 null。
+    function stockRankingIndustryData(group) {
+      if (!stockRankings || !data) return null;
+      if (data.id !== "twse" && data.id !== "tpex") return null;
+      const panelData = stockRankings.panels[data.id];
+      return (panelData && panelData[group]) || null;
+    }
+    function hasStockDrilldown(group) {
+      return !!stockRankingIndustryData(group);
+    }
+
     // ---------- DOM ----------
     const el = {
       pageTitle: document.getElementById("pageTitle"),
@@ -753,7 +860,80 @@
       drawerHandle: document.getElementById("drawerHandle"),
       drawerHandleText: document.getElementById("drawerHandleText"),
       showAllBtn: document.getElementById("showAllBtn"),
+      ddOverlay: document.getElementById("stockDrilldownOverlay"),
+      ddCloseBtn: document.getElementById("stockDrilldownCloseBtn"),
+      ddTitle: document.getElementById("ddTitle"),
+      ddSubtitle: document.getElementById("ddSubtitle"),
+      ddTbody: document.getElementById("ddTbody"),
     };
+
+    // ---------- 雙強個股下鑽卡片：開/關/渲染 ----------
+    let currentDrilldownGroup = null;
+    function openStockDrilldown(group) {
+      if (!hasStockDrilldown(group)) return;
+      currentDrilldownGroup = group;
+      renderDrilldown();
+      if (el.ddOverlay) el.ddOverlay.classList.add("show");
+    }
+    function closeStockDrilldown() {
+      currentDrilldownGroup = null;
+      if (el.ddOverlay) el.ddOverlay.classList.remove("show");
+    }
+    function renderDrilldown() {
+      if (!currentDrilldownGroup || !el.ddOverlay) return;
+      const group = currentDrilldownGroup;
+      const industryData = stockRankingIndustryData(group);
+      if (!industryData) { closeStockDrilldown(); return; }
+      const periodKey = String(currentPeriod);
+      const list = (Array.isArray(industryData[periodKey]) ? industryData[periodKey].slice() : [])
+        .sort((a, b) => b.x - a.x);
+
+      el.ddTitle.textContent = shortName(group) + "・雙強個股 TOP 10";
+      el.ddSubtitle.textContent =
+        "相對產業指數 RS｜週期跟隨當前選擇（" + currentPeriod + "日）｜資料截至 " +
+        (stockRankings.as_of || "--");
+
+      el.ddTbody.innerHTML = "";
+      if (list.length === 0) {
+        const tr = document.createElement("tr");
+        const td = document.createElement("td");
+        td.colSpan = 5;
+        td.style.textAlign = "center";
+        td.style.color = "var(--text-dim)";
+        td.textContent = "本產業目前無符合雙強條件的個股";
+        tr.appendChild(td);
+        el.ddTbody.appendChild(tr);
+        return;
+      }
+      list.forEach((item) => {
+        const tr = document.createElement("tr");
+        if (item.x >= 100) tr.className = "dd-strong";
+        const amtYi = (item.amt20 / 1e8).toFixed(1);
+        const tdCode = document.createElement("td");
+        tdCode.textContent = item.code;
+        const tdName = document.createElement("td");
+        tdName.style.textAlign = "left";
+        tdName.textContent = item.name;
+        const tdX = document.createElement("td");
+        tdX.textContent = item.x.toFixed(2);
+        const tdY = document.createElement("td");
+        tdY.textContent = item.y.toFixed(2);
+        const tdAmt = document.createElement("td");
+        tdAmt.textContent = amtYi;
+        tr.appendChild(tdCode); tr.appendChild(tdName); tr.appendChild(tdX);
+        tr.appendChild(tdY); tr.appendChild(tdAmt);
+        el.ddTbody.appendChild(tr);
+      });
+    }
+    if (el.ddCloseBtn) el.ddCloseBtn.addEventListener("click", closeStockDrilldown);
+    if (el.ddOverlay) {
+      el.ddOverlay.addEventListener("click", (e) => {
+        if (e.target === el.ddOverlay) closeStockDrilldown();
+      });
+    }
+    window.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && el.ddOverlay && el.ddOverlay.classList.contains("show")) closeStockDrilldown();
+    });
 
     // ---------- 窄直版模式（手機直向）偵測 ----------
     // 斷點與 CSS media query 完全一致：< 720px 且 portrait。resize／
@@ -892,10 +1072,13 @@
       allGroups.forEach((g) => {
         const row = document.createElement("label");
         row.className = "group-row";
+        const hasDrill = hasStockDrilldown(g);
         row.innerHTML =
           '<input type="checkbox" ' + (visibleGroups.has(g) ? "checked" : "") + '>' +
           '<span class="dot"></span>' +
-          '<span class="name">' + shortName(g) + '</span>' +
+          '<span class="name' + (hasDrill ? " has-drill" : "") + '">' + shortName(g) +
+            (hasDrill ? ' <span class="drill-icon" aria-hidden="true">▸</span>' : "") +
+          '</span>' +
           '<span class="badge" style="display:none;">轉強</span>';
         const checkbox = row.querySelector("input");
         checkbox.addEventListener("change", () => {
@@ -903,6 +1086,18 @@
           recomputeBounds();
           applyListFilter();
         });
+        // 點族群列的「名稱區」（非 checkbox）開啟雙強個股下鑽卡；row 是原生
+        // <label> 包住 checkbox，預設點內部任何地方都會轉發成 checkbox 的
+        // click，這裡用 preventDefault 攔截該轉發行為，改成開下鑽卡，不影響
+        // 沒有個股資料的族群（那些列仍維持點哪裡都切換勾選的原有行為）。
+        if (hasDrill) {
+          const nameSpan = row.querySelector(".name");
+          nameSpan.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            openStockDrilldown(g);
+          });
+        }
         el.groupList.appendChild(row);
         rowMap[g] = row;
       });
@@ -946,6 +1141,7 @@
     // 沿用原本台股頁「一開場停在最新一天」的觀感，不因為改走 loadDataset() 這條
     // 路徑而變成從頭播放——即「現有台股面板功能與觀感完全不變」。
     function loadDataset(idx, resetPlayheadToZero) {
+      closeStockDrilldown(); // 切換面板時自動關閉下鑽卡（不同面板的族群/資料對映不同）
       data = datasets[idx];
       el.panelSelect.value = idx;
       el.asOf.textContent = "資料日期：" + (data.as_of || data.dates[data.dates.length - 1] || "--");
@@ -1084,6 +1280,7 @@
       currentPeriod = parseInt(el.periodSelect.value, 10);
       playing = false; updatePlayButton();
       rebuildSlice();
+      if (currentDrilldownGroup) renderDrilldown(); // 下鑽卡開著時，內容跟著新週期切換
     });
     el.rangeSelect.addEventListener("change", () => {
       playing = false; updatePlayButton();
@@ -1451,7 +1648,8 @@
     function showTooltip(best, mx, my) {
       el.tooltip.style.display = "block";
       const wrapRect = el.canvasWrap.getBoundingClientRect();
-      const ttGuessW = 190, ttGuessH = 46;
+      const showHint = hasStockDrilldown(best.group);
+      const ttGuessW = 190, ttGuessH = showHint ? 64 : 46;
       let left = mx + 14, top = my + 10;
       if (left + ttGuessW > wrapRect.width) left = Math.max(4, mx - ttGuessW - 6);
       if (top + ttGuessH > wrapRect.height) top = Math.max(4, my - ttGuessH - 6);
@@ -1460,20 +1658,43 @@
       el.tooltip.querySelector(".tt-name").textContent = best.group;
       el.tooltip.querySelector(".tt-val").textContent =
         "RS-Ratio " + best.x.toFixed(2) + " ／ RS-Momentum " + best.y.toFixed(2);
+      let hintEl = el.tooltip.querySelector(".tt-hint");
+      if (showHint) {
+        if (!hintEl) {
+          hintEl = document.createElement("div");
+          hintEl.className = "tt-hint";
+          el.tooltip.appendChild(hintEl);
+        }
+        hintEl.textContent = "點擊看雙強個股";
+        hintEl.style.display = "block";
+      } else if (hintEl) {
+        hintEl.style.display = "none";
+      }
     }
     el.canvas.addEventListener("mousemove", (e) => {
       const { best, mx, my } = findNearestMarker(e.clientX, e.clientY, 14); // px 閾值，維持桌面既有行為
       if (best) showTooltip(best, mx, my); else el.tooltip.style.display = "none";
     });
     el.canvas.addEventListener("mouseleave", () => { el.tooltip.style.display = "none"; });
+    // 桌面點擊 canvas 上的產業點：該產業有個股資料才開下鑽卡；純新增的
+    // click 監聽，與上方 mousemove/hover 的 tooltip 邏輯完全不衝突。
+    el.canvas.addEventListener("click", (e) => {
+      const { best } = findNearestMarker(e.clientX, e.clientY, 14);
+      if (best && hasStockDrilldown(best.group)) openStockDrilldown(best.group);
+    });
 
-    // 手機無 hover：tap 最近的點顯示 tooltip；再點同一點或點空白處關閉；
-    // 點別的點則切換。桌面滑鼠 hover 行為（上方）完全不受影響。
+    // 手機無 hover：tap 最近的點——若該點有個股資料，直接開下鑽卡（手機小螢幕上
+    // 全螢幕卡片比 pin 住的小 tooltip 更實用）；沒有個股資料的點維持原行為：
+    // 顯示 tooltip，再點同一點或點空白處關閉，點別的點則切換。
     el.canvas.addEventListener("touchstart", (e) => {
       if (e.touches.length !== 1) return;
       const t = e.touches[0];
       const { best, mx, my } = findNearestMarker(t.clientX, t.clientY, 26); // 觸控命中半徑放寬
-      if (best && touchTooltipGroup === best.group) {
+      if (best && hasStockDrilldown(best.group)) {
+        touchTooltipGroup = null;
+        el.tooltip.style.display = "none";
+        openStockDrilldown(best.group);
+      } else if (best && touchTooltipGroup === best.group) {
         touchTooltipGroup = null;
         el.tooltip.style.display = "none";
       } else if (best) {

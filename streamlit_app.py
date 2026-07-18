@@ -60,6 +60,7 @@ from compute_tpex import build_tpex_dataset  # noqa: E402
 
 DATA_CSV = SCRIPT_DIR / "data" / "sector_indices.csv"
 RRG_HTML_PATH = SCRIPT_DIR / "web" / "rrg.html"
+STOCK_RANKINGS_JSON = SCRIPT_DIR / "data" / "stock_rankings.json"
 
 # --------------------------------------------------------------------------
 # 新手教學（內建於頁面，非另開文件）
@@ -112,8 +113,9 @@ RRG_TUTORIAL_HTML = (
     "<li><b>最值錢的訊號</b>：從「改善」跨進「領先」＝原本沒人要的族群資金開始"
     "進來，畫面會自動標「⚡ 剛轉強」。</li>"
     "<li><b>怎麼操作</b>：按 ▶ 播放看資金這幾個月怎麼流動，尾巴是走過的路；"
-    "覺得快可調慢速，想逐日看用「前一日／後一日」；上方可切三個面板——"
-    "台股類股、全球資產、市場輪動；週期短用 20 日、看大方向用 120 日。</li>"
+    "覺得快可調慢速，想逐日看用「前一日／後一日」；上方可切四個面板——"
+    "台股類股、上櫃類股、全球資產、市場輪動；週期短用 20 日、看大方向用 120 日；"
+    "點產業名稱還能看該產業的「雙強個股」名單。</li>"
     "<li><b>建議看法</b>：先看「市場輪動」知道錢在哪國 → 再看「全球資產」知道"
     "市場愛冒險還是避險 → 最後回「台股類股」挑主流族群。</li>"
     '<li style="color:#7a6f5a;"><b>小提醒</b>：資料每天盤後自動更新，開網頁就是'
@@ -267,6 +269,33 @@ def build_tpex_payload(pivot_tpex: pd.DataFrame) -> dict | None:
 
 
 # --------------------------------------------------------------------------
+# 個股雙強排行載入（前端消費端；運算已在 compute_stocks.py 離線完成，本檔
+# 只負責讀取與呈現，不重算）
+# --------------------------------------------------------------------------
+@st.cache_data(show_spinner=False)
+def load_stock_rankings(mtime: float) -> dict | None:
+    """讀 data/stock_rankings.json（compute_stocks.py 的產物，純讀取不重算）。
+    檔案不存在時回傳 None，呼叫端據此整區隱藏（expander 不顯示、iframe 內也
+    不注入 window.RRG_STOCK_RANKINGS），不是錯誤——與其餘選用面板（上櫃／
+    全球資產）的既有容錯慣例一致。快取 key 用檔案 mtime（`mtime` 參數，
+    呼叫端傳入；刻意不加底線前綴——底線前綴在 st.cache_data 語意是「排除在
+    雜湊 key 之外」，這裡恰好要用 mtime 當雜湊 key 才能在檔案更新後正確
+    失效重讀，若加底線前綴會導致快取永遠不失效，吃到舊資料或誤判缺檔），
+    檔案更新後會自動重新讀取，不吃到舊快取。
+    """
+    if not STOCK_RANKINGS_JSON.exists():
+        return None
+    try:
+        with STOCK_RANKINGS_JSON.open("r", encoding="utf-8") as f:
+            payload = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return None
+    if not isinstance(payload, dict) or not payload.get("panels"):
+        return None
+    return payload
+
+
+# --------------------------------------------------------------------------
 # Canvas 頁嵌入組裝
 # --------------------------------------------------------------------------
 @st.cache_data(show_spinner=False)
@@ -274,23 +303,26 @@ def build_rrg_embed_html(
     as_of: str,
     global_as_of: str | None,
     tpex_as_of: str | None,
+    stock_as_of: str | None,
     rrg_html_mtime: float,
     _payload: dict,
     _global_datasets: list[dict],
     _tpex_payload: dict | None,
+    _stock_payload: dict | None,
 ) -> str:
-    """把 web/rrg.html 原始碼中的三個 `<script src="...">` 都換成內嵌資料：
+    """把 web/rrg.html 原始碼中的四個 `<script src="...">` 都換成內嵌資料：
     `window.RRG_DATA = {...}`（台股）、（若有上櫃資料）
-    `window.RRG_DATASET_TPEX = {...}`（上櫃類股）與（若有全球資料）
-    `window.RRG_DATASETS_GLOBAL = [...]`（全球資產／市場輪動），組成可直接
-    用 st.iframe 整頁嵌入的 HTML。上櫃／全球資料缺席時保留原本的
+    `window.RRG_DATASET_TPEX = {...}`（上櫃類股）、（若有全球資料）
+    `window.RRG_DATASETS_GLOBAL = [...]`（全球資產／市場輪動）與（若有個股
+    雙強排行資料）`window.RRG_STOCK_RANKINGS = {...}`，組成可直接用
+    st.iframe 整頁嵌入的 HTML。任一資料缺席時保留原本的
     `<script src="..." onerror="...">` 標籤原樣——在 iframe srcdoc 環境下
     這個相對路徑本來就抓不到檔案，onerror 靜默處理，rrg.html 的 JS 本就會
-    檢查對應的 window 全域變數是否存在，頁面仍只顯示可用的面板，不會出錯。
+    檢查對應的 window 全域變數是否存在，頁面仍只顯示可用的功能，不會出錯。
 
-    快取 key 用 as_of／global_as_of／tpex_as_of／rrg.html 檔案 mtime（不含
-    payload 本身，payload 以底線前綴排除雜湊——資料量大，靠 as_of/mtime 已
-    足以判斷是否需要重算），避免改版或換日後吃到舊快取。
+    快取 key 用 as_of／global_as_of／tpex_as_of／stock_as_of／rrg.html 檔案
+    mtime（不含 payload 本身，payload 以底線前綴排除雜湊——資料量大，靠
+    as_of/mtime 已足以判斷是否需要重算），避免改版或換日後吃到舊快取。
     """
     raw_html = RRG_HTML_PATH.read_text(encoding="utf-8")
     payload_json = json.dumps(_payload, ensure_ascii=False)
@@ -311,6 +343,13 @@ def build_rrg_embed_html(
         injected = injected.replace(
             '<script src="rrg_data_global.js" onerror="window.__RRG_GLOBAL_MISSING__ = true;"></script>',
             f"<script>window.RRG_DATASETS_GLOBAL = {global_json};</script>",
+            1,
+        )
+    if _stock_payload:
+        stock_json = json.dumps(_stock_payload, ensure_ascii=False)
+        injected = injected.replace(
+            '<script src="rrg_data_stocks.js" onerror="window.__RRG_STOCKS_MISSING__ = true;"></script>',
+            f"<script>window.RRG_STOCK_RANKINGS = {stock_json};</script>",
             1,
         )
     # iframe 內不需要再出現自己的捲軸：整頁已經是單一視圖，避免雙捲軸
@@ -372,6 +411,65 @@ def inject_css() -> None:
     )
 
 
+def render_stock_rankings_expander(stock_rankings: dict | None) -> None:
+    """iframe 下方的「雙強個股排行」摺疊區：市場／產業／週期三個篩選器 +
+    st.dataframe 呈現 TOP 10。純讀取 data/stock_rankings.json 已算好的結果
+    （見 load_stock_rankings），不重算任何 RS-Ratio／RS-Momentum。
+    `stock_rankings` 為 None（檔案不存在／內容無效）時整區不顯示，不報錯，
+    比照上櫃／全球面板既有的「缺檔靜默略過」慣例。
+    """
+    if not stock_rankings:
+        return
+    panels = stock_rankings.get("panels") or {}
+    market_options = [(key, label) for key, label in (("twse", "上市"), ("tpex", "上櫃")) if panels.get(key)]
+    if not market_options:
+        return
+
+    with st.expander("⚡ 雙強個股排行（強產業內選強個股）", expanded=False):
+        st.caption(
+            "在已轉強的產業內，找出相對「自身產業指數」更強的個股（RS-Ratio ≥ 100）。"
+            "只是把既有 RRG 的「產業 vs. 大盤」換成「個股 vs. 所屬產業指數」，往下鑽一層。"
+        )
+        col_market, col_industry, col_period = st.columns([1, 2, 2])
+        with col_market:
+            market_key = st.selectbox(
+                "市場", options=[k for k, _ in market_options],
+                format_func=lambda k: dict(market_options)[k], key="stock_rank_market",
+            )
+        industries = sorted(panels.get(market_key) or {})
+        with col_industry:
+            industry = st.selectbox(
+                "產業", options=industries,
+                format_func=lambda name: name[:-3] if name.endswith("類指數") else name,
+                key="stock_rank_industry_" + market_key,
+            )
+        with col_period:
+            period = st.radio(
+                "週期", options=[20, 60, 120], index=1, horizontal=True,
+                format_func=lambda p: f"{p}日", key="stock_rank_period",
+            )
+
+        rows = ((panels.get(market_key) or {}).get(industry) or {}).get(str(period)) or []
+        if not rows:
+            st.info("本產業目前無符合雙強條件的個股。")
+        else:
+            df = pd.DataFrame(sorted(rows, key=lambda r: -r["x"]))
+            df = df.rename(columns={
+                "code": "代號", "name": "名稱", "x": "RS-Ratio", "y": "RS-Momentum", "amt20": "20日均額(億元)",
+            })
+            df["20日均額(億元)"] = (df["20日均額(億元)"] / 1e8).round(1)
+            df["RS-Ratio"] = df["RS-Ratio"].round(2)
+            df["RS-Momentum"] = df["RS-Momentum"].round(2)
+            df = df[["代號", "名稱", "RS-Ratio", "RS-Momentum", "20日均額(億元)"]]
+            st.dataframe(df, width="stretch", hide_index=True)
+
+        liquidity_floor_wan = (stock_rankings.get("liquidity_floor") or 0) / 1e4
+        st.caption(
+            f"流動性門檻：20日均成交金額 ≥ {liquidity_floor_wan:,.0f} 萬｜資料截至 "
+            f"{stock_rankings.get('as_of', '--')}｜觀察工具，未經回測驗證，非買賣建議"
+        )
+
+
 def main() -> None:
     st.set_page_config(page_title="產業輪動雷達 RRG", page_icon="🌅", layout="wide")
     inject_css()
@@ -418,10 +516,14 @@ def main() -> None:
     tpex_payload = build_tpex_payload(pivot_tpex)
     tpex_as_of = tpex_payload["as_of"] if tpex_payload else None
 
+    stock_mtime = STOCK_RANKINGS_JSON.stat().st_mtime if STOCK_RANKINGS_JSON.exists() else 0.0
+    stock_rankings = load_stock_rankings(stock_mtime)
+    stock_as_of = stock_rankings["as_of"] if stock_rankings else None
+
     rrg_html_mtime = RRG_HTML_PATH.stat().st_mtime if RRG_HTML_PATH.exists() else 0.0
     embed_html = build_rrg_embed_html(
-        payload["as_of"], global_as_of, tpex_as_of, rrg_html_mtime,
-        payload, global_datasets, tpex_payload,
+        payload["as_of"], global_as_of, tpex_as_of, stock_as_of, rrg_html_mtime,
+        payload, global_datasets, tpex_payload, stock_rankings,
     )
     # st.components.v1.html 已棄用（目前 streamlit 版本會在執行時警告，且已過官方
     # 移除期限），改用原生 st.iframe：同樣接受原始 HTML 字串直接嵌入，語意等價。
@@ -432,6 +534,8 @@ def main() -> None:
     # 780 在窄直版堆疊佈局下已足夠放下 header＋圖表＋播放列＋抽屜把手，也比
     # 900 更貼近手機瀏覽器實際可視高度，減少手機上需要額外下拉的空白。
     st.iframe(embed_html, height=780)
+
+    render_stock_rankings_expander(stock_rankings)
 
     footer_bits = [f"台股資料截至：{payload['as_of']}"]
     if tpex_as_of:
