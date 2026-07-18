@@ -293,6 +293,47 @@
   ::-webkit-scrollbar { width: 8px; }
   ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
   ::-webkit-scrollbar-thumb:hover { background: var(--accent-soft); }
+
+  /* ---- 新手教學浮層 ---- */
+  #tutorialOverlay {
+    display: none;
+    position: fixed; inset: 0;
+    align-items: center; justify-content: center;
+    background: rgba(46, 36, 24, 0.45);
+    backdrop-filter: blur(2px);
+    padding: 24px;
+    z-index: 1000;
+  }
+  #tutorialOverlay.show { display: flex; }
+  #tutorialCard {
+    position: relative;
+    max-width: 640px;
+    width: 100%;
+    max-height: 86vh;
+    overflow-y: auto;
+    padding: 30px 32px;
+    background: linear-gradient(160deg, var(--panel-strong), var(--panel2));
+    backdrop-filter: blur(18px) saturate(1.2);
+    -webkit-backdrop-filter: blur(18px) saturate(1.2);
+    border: 1px solid var(--border);
+    border-radius: 30px 14px 34px 12px;
+    box-shadow: 0 12px 40px var(--shadow-gold), inset 0 1px 0 rgba(255,255,255,0.6);
+  }
+  #tutorialCard h2 {
+    margin: 0 0 14px; font-size: 20px; color: var(--accent);
+  }
+  #tutorialCloseBtn {
+    position: absolute; top: 14px; right: 16px;
+    width: 30px; height: 30px; padding: 0;
+    border-radius: 50%;
+    font-size: 16px; line-height: 1;
+  }
+  #tutorialCard ol {
+    line-height: 1.9; padding-left: 20px; margin: 14px 0 0;
+    font-size: 13.5px; color: var(--text);
+  }
+  #tutorialCard ul { margin: 6px 0; padding-left: 18px; }
+  #tutorialCard li { margin-bottom: 6px; }
 </style>
 </head>
 <body>
@@ -354,6 +395,7 @@
       <input type="range" id="tailSlider" min="5" max="60" value="10" step="1">
       <span id="tailValue">10</span>
     </div>
+    <button id="tutorialBtn" type="button" title="新手教學">？教學</button>
   </header>
 
   <main>
@@ -391,6 +433,56 @@
       <div id="groupList"></div>
     </aside>
   </main>
+</div>
+
+<div id="tutorialOverlay">
+  <div id="tutorialCard" class="glass-card">
+    <button id="tutorialCloseBtn" aria-label="關閉">×</button>
+    <h2>如何看這張資金地圖</h2>
+    <div style="text-align:center;">
+      <svg viewBox="0 0 560 430" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="RRG 四象限示意圖" style="width:100%;max-width:560px;height:auto;display:block;margin:0 auto;">
+        <rect x="40" y="30" width="240" height="175" fill="rgba(21,94,138,0.13)"></rect>
+        <rect x="280" y="30" width="240" height="175" fill="rgba(143,90,0,0.14)"></rect>
+        <rect x="40" y="205" width="240" height="175" fill="rgba(74,98,136,0.13)"></rect>
+        <rect x="280" y="205" width="240" height="175" fill="rgba(174,68,22,0.13)"></rect>
+        <rect x="40" y="30" width="480" height="350" fill="none" stroke="rgba(120,90,40,0.4)" stroke-width="1.5"></rect>
+        <line x1="280" y1="30" x2="280" y2="380" stroke="rgba(120,90,40,0.4)" stroke-width="1.5"></line>
+        <line x1="40" y1="205" x2="520" y2="205" stroke="rgba(120,90,40,0.4)" stroke-width="1.5"></line>
+        <circle cx="280" cy="205" r="120" fill="none" stroke="#8f5a00" stroke-width="2" stroke-opacity="0.55" stroke-dasharray="4 5"></circle>
+        <polygon points="-7,-6 9,0 -7,6" fill="#8f5a00" transform="translate(280,85) rotate(0)"></polygon>
+        <polygon points="-7,-6 9,0 -7,6" fill="#8f5a00" transform="translate(400,205) rotate(90)"></polygon>
+        <polygon points="-7,-6 9,0 -7,6" fill="#8f5a00" transform="translate(280,325) rotate(180)"></polygon>
+        <polygon points="-7,-6 9,0 -7,6" fill="#8f5a00" transform="translate(160,205) rotate(270)"></polygon>
+        <circle cx="280" cy="205" r="3.5" fill="#2e2418"></circle>
+        <text x="288" y="201" font-size="11" fill="#2e2418" font-weight="600">= 大盤</text>
+        <text x="500" y="58" text-anchor="end" font-size="23" font-weight="700" fill="#8f5a00">領先</text>
+        <text x="500" y="78" text-anchor="end" font-size="12" fill="#6b5a47">主流．資金聚集</text>
+        <text x="60" y="58" text-anchor="start" font-size="23" font-weight="700" fill="#155e8a">改善</text>
+        <text x="60" y="78" text-anchor="start" font-size="12" fill="#6b5a47">轉強中．潛力</text>
+        <text x="500" y="338" text-anchor="end" font-size="23" font-weight="700" fill="#ae4416">弱化</text>
+        <text x="500" y="358" text-anchor="end" font-size="12" fill="#6b5a47">退燒．留意</text>
+        <text x="60" y="338" text-anchor="start" font-size="23" font-weight="700" fill="#4a6288">落後</text>
+        <text x="60" y="358" text-anchor="start" font-size="12" fill="#6b5a47">冷宮．資金離開</text>
+        <text x="280" y="405" text-anchor="middle" font-size="13" fill="#6b5a47">越往右 → 越強過大盤</text>
+        <text x="18" y="205" text-anchor="middle" font-size="13" fill="#6b5a47" transform="rotate(-90 18 205)">越往上 → 動能越快</text>
+      </svg>
+    </div>
+    <ol>
+      <li><b>看圖只要記兩個方向</b>：點越往右 = 這個產業/資產<b>越強過大盤</b>；點越往上 = 它<b>變強的速度越快</b>。</li>
+      <li><b>四象限</b>（配上方示意圖）：
+        <ul>
+          <li>🟡 <b>領先</b>（右上・金）＝現在的主流</li>
+          <li>🔷 <b>改善</b>（左上・藍）＝正在翻身值得盯</li>
+          <li>🟠 <b>弱化</b>（右下・橘）＝開始退燒要小心</li>
+          <li>🔵 <b>落後</b>（左下・藍灰）＝資金離開的冷宮</li>
+        </ul>
+      </li>
+      <li><b>最值錢的訊號</b>：從「改善」跨進「領先」＝原本沒人要的族群資金開始進來，畫面會自動標「⚡ 剛轉強」。</li>
+      <li><b>怎麼操作</b>：按 ▶ 播放看資金這幾個月怎麼流動，尾巴是走過的路；覺得快可調慢速，想逐日看用「前一日／後一日」；上方可切三個面板——台股類股、全球資產、市場輪動；週期短用 20 日、看大方向用 120 日。</li>
+      <li><b>建議看法</b>：先看「市場輪動」知道錢在哪國 → 再看「全球資產」知道市場愛冒險還是避險 → 最後回「台股類股」挑主流族群。</li>
+      <li style="color:var(--text-dim);"><b>小提醒</b>：資料每天盤後自動更新，開網頁就是最新的；這是觀察資金流向的工具，不是買賣建議。</li>
+    </ol>
+  </div>
 </div>
 
 <script src="rrg_data.js"></script>
@@ -1141,6 +1233,30 @@
     loadDataset(0, false);
     requestAnimationFrame(loop);
   }
+})();
+</script>
+
+<!-- 新手教學浮層控制：獨立於上方主邏輯，即使資料尚未就緒／主邏輯出錯，
+     教學按鈕本身也不依賴 RRG_DATA。純 vanilla JS，無外部依賴。 -->
+<script>
+(function () {
+  "use strict";
+  var btn = document.getElementById("tutorialBtn");
+  var overlay = document.getElementById("tutorialOverlay");
+  var closeBtn = document.getElementById("tutorialCloseBtn");
+  if (!btn || !overlay || !closeBtn) return;
+
+  function openTutorial() { overlay.classList.add("show"); }
+  function closeTutorial() { overlay.classList.remove("show"); }
+
+  btn.addEventListener("click", openTutorial);
+  closeBtn.addEventListener("click", closeTutorial);
+  overlay.addEventListener("click", function (e) {
+    if (e.target === overlay) closeTutorial();
+  });
+  window.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && overlay.classList.contains("show")) closeTutorial();
+  });
 })();
 </script>
 </body>

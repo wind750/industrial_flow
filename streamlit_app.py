@@ -55,6 +55,66 @@ from compute_global import build_multi_benchmark_dataset as build_global_assets_
 DATA_CSV = SCRIPT_DIR / "data" / "sector_indices.csv"
 RRG_HTML_PATH = SCRIPT_DIR / "web" / "rrg.html"
 
+# --------------------------------------------------------------------------
+# 新手教學（內建於頁面，非另開文件）
+# 與 web/rrg.html 內的教學浮層共用同一份 SVG 示意圖原始碼與文案，
+# 兩處分開維護但視覺／文字內容須保持一致，改一處記得同步改另一處。
+# --------------------------------------------------------------------------
+RRG_TUTORIAL_SVG = """
+<svg viewBox="0 0 560 430" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="RRG 四象限示意圖" style="width:100%;max-width:560px;height:auto;display:block;margin:0 auto;">
+  <rect x="40" y="30" width="240" height="175" fill="rgba(21,94,138,0.13)"></rect>
+  <rect x="280" y="30" width="240" height="175" fill="rgba(143,90,0,0.14)"></rect>
+  <rect x="40" y="205" width="240" height="175" fill="rgba(74,98,136,0.13)"></rect>
+  <rect x="280" y="205" width="240" height="175" fill="rgba(174,68,22,0.13)"></rect>
+  <rect x="40" y="30" width="480" height="350" fill="none" stroke="rgba(120,90,40,0.4)" stroke-width="1.5"></rect>
+  <line x1="280" y1="30" x2="280" y2="380" stroke="rgba(120,90,40,0.4)" stroke-width="1.5"></line>
+  <line x1="40" y1="205" x2="520" y2="205" stroke="rgba(120,90,40,0.4)" stroke-width="1.5"></line>
+  <circle cx="280" cy="205" r="120" fill="none" stroke="#8f5a00" stroke-width="2" stroke-opacity="0.55" stroke-dasharray="4 5"></circle>
+  <polygon points="-7,-6 9,0 -7,6" fill="#8f5a00" transform="translate(280,85) rotate(0)"></polygon>
+  <polygon points="-7,-6 9,0 -7,6" fill="#8f5a00" transform="translate(400,205) rotate(90)"></polygon>
+  <polygon points="-7,-6 9,0 -7,6" fill="#8f5a00" transform="translate(280,325) rotate(180)"></polygon>
+  <polygon points="-7,-6 9,0 -7,6" fill="#8f5a00" transform="translate(160,205) rotate(270)"></polygon>
+  <circle cx="280" cy="205" r="3.5" fill="#2e2418"></circle>
+  <text x="288" y="201" font-size="11" fill="#2e2418" font-weight="600">= 大盤</text>
+  <text x="500" y="58" text-anchor="end" font-size="23" font-weight="700" fill="#8f5a00">領先</text>
+  <text x="500" y="78" text-anchor="end" font-size="12" fill="#6b5a47">主流．資金聚集</text>
+  <text x="60" y="58" text-anchor="start" font-size="23" font-weight="700" fill="#155e8a">改善</text>
+  <text x="60" y="78" text-anchor="start" font-size="12" fill="#6b5a47">轉強中．潛力</text>
+  <text x="500" y="338" text-anchor="end" font-size="23" font-weight="700" fill="#ae4416">弱化</text>
+  <text x="500" y="358" text-anchor="end" font-size="12" fill="#6b5a47">退燒．留意</text>
+  <text x="60" y="338" text-anchor="start" font-size="23" font-weight="700" fill="#4a6288">落後</text>
+  <text x="60" y="358" text-anchor="start" font-size="12" fill="#6b5a47">冷宮．資金離開</text>
+  <text x="280" y="405" text-anchor="middle" font-size="13" fill="#6b5a47">越往右 → 越強過大盤</text>
+  <text x="18" y="205" text-anchor="middle" font-size="13" fill="#6b5a47" transform="rotate(-90 18 205)">越往上 → 動能越快</text>
+</svg>
+"""
+
+RRG_TUTORIAL_HTML = (
+    '<div class="glass-card" style="text-align:center;">' + RRG_TUTORIAL_SVG + "</div>"
+    '<div class="glass-card">'
+    '<h4 style="margin:0 0 10px;color:#4a3f2c;">如何看這張資金地圖</h4>'
+    '<ol style="line-height:1.9;padding-left:20px;margin:0;font-size:14px;color:#4a3f2c;">'
+    "<li><b>看圖只要記兩個方向</b>：點越往右 = 這個產業/資產<b>越強過大盤</b>；"
+    "點越往上 = 它<b>變強的速度越快</b>。</li>"
+    "<li><b>四象限</b>（配上方示意圖）："
+    '<ul style="margin:6px 0;padding-left:18px;">'
+    "<li>🟡 <b>領先</b>（右上・金）＝現在的主流</li>"
+    "<li>🔷 <b>改善</b>（左上・藍）＝正在翻身值得盯</li>"
+    "<li>🟠 <b>弱化</b>（右下・橘）＝開始退燒要小心</li>"
+    "<li>🔵 <b>落後</b>（左下・藍灰）＝資金離開的冷宮</li>"
+    "</ul></li>"
+    "<li><b>最值錢的訊號</b>：從「改善」跨進「領先」＝原本沒人要的族群資金開始"
+    "進來，畫面會自動標「⚡ 剛轉強」。</li>"
+    "<li><b>怎麼操作</b>：按 ▶ 播放看資金這幾個月怎麼流動，尾巴是走過的路；"
+    "覺得快可調慢速，想逐日看用「前一日／後一日」；上方可切三個面板——"
+    "台股類股、全球資產、市場輪動；週期短用 20 日、看大方向用 120 日。</li>"
+    "<li><b>建議看法</b>：先看「市場輪動」知道錢在哪國 → 再看「全球資產」知道"
+    "市場愛冒險還是避險 → 最後回「台股類股」挑主流族群。</li>"
+    '<li style="color:#7a6f5a;"><b>小提醒</b>：資料每天盤後自動更新，開網頁就是'
+    "最新的；這是觀察資金流向的工具，不是買賣建議。</li>"
+    "</ol></div>"
+)
+
 
 # --------------------------------------------------------------------------
 # 資料載入與計算
@@ -269,6 +329,9 @@ def main() -> None:
     st.title("🌅 台股產業輪動雷達（RRG）")
     st.caption("Relative Rotation Graph — 觀察各產業相對大盤的資金輪動位置")
 
+    with st.expander("📖 新手教學 — 第一次來先看這裡", expanded=False):
+        st.markdown(RRG_TUTORIAL_HTML, unsafe_allow_html=True)
+
     pivot = load_pivot()
 
     if pivot.empty:
@@ -278,12 +341,8 @@ def main() -> None:
     with st.sidebar:
         st.header("使用說明")
         st.markdown(
-            "**四象限判讀**\n\n"
-            "- 🟡 **領先 Leading**（右上）：相對強度、動能皆優於大盤\n"
-            "- 🟠 **弱化 Weakening**（右下）：仍強於大盤，但動能開始減弱\n"
-            "- 🔵 **落後 Lagging**（左下）：相對強度、動能皆弱於大盤\n"
-            "- 🔷 **改善 Improving**（左上）：仍弱於大盤，但動能正在回升\n\n"
-            "族群通常依「改善 → 領先 → 弱化 → 落後」順時針方向在四象限間輪動。\n\n"
+            "圖文版四象限教學已整合到主畫面上方的「📖 新手教學」摺疊區，"
+            "第一次使用建議先展開看一輪。這裡只列操作細節：\n\n"
             "**剛轉強**：最近 5 個交易日內，由「改善」象限跨入「領先」象限的"
             "族群，圖表右側面板會即時標示（⚡ 剛轉強雷達）。\n\n"
             "基準指數、週期、回放範圍、尾巴長度與族群清單等控制項已整合在"
