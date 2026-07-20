@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import ssl
 import sys
 import time
 from datetime import date, datetime, timedelta
@@ -40,6 +41,26 @@ from pathlib import Path
 
 import pandas as pd
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.ssl_ import create_urllib3_context
+
+
+class _TpexSSLAdapter(HTTPAdapter):
+    """關閉 ssl.VERIFY_X509_STRICT（Python 3.12+ 預設開啟，對櫃買憑證的
+    Subject Key Identifier 檢查過嚴，本機 Windows 會拋 SSLCertVerificationError；
+    雲端 Ubuntu 不受影響）。僅放寬這一項旗標，憑證本身仍正常驗證，非 verify=False。
+    與 fetch_stocks.py 的同名 adapter 同源，改一處記得兩處同步。"""
+
+    def init_poolmanager(self, *args, **kwargs):
+        context = create_urllib3_context()
+        if hasattr(ssl, "VERIFY_X509_STRICT"):
+            context.verify_flags &= ~ssl.VERIFY_X509_STRICT
+        kwargs["ssl_context"] = context
+        return super().init_poolmanager(*args, **kwargs)
+
+
+_TPEX_SESSION = requests.Session()
+_TPEX_SESSION.mount("https://www.tpex.org.tw/", _TpexSSLAdapter())
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 DATA_DIR = SCRIPT_DIR / "data"
@@ -101,7 +122,7 @@ def fetch_one_day(d: date) -> dict | None:
     last_err = None
     for attempt in (1, 2):
         try:
-            resp = requests.get(url, timeout=15)
+            resp = _TPEX_SESSION.get(url, timeout=15)
             resp.raise_for_status()
             data = resp.json()
             return data
