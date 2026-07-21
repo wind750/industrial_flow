@@ -61,14 +61,25 @@ def main() -> int:
     # 2. 算雙強排行（sector 的 rrg_data.js 是 Streamlit 動態算、不需在此產）
     run_step("雙強排行", ["compute_stocks.py"])
 
-    # 3. push（先 rebase 避免與雲端備援撞；無 diff 則不 commit）
+    # 3. push——「以遠端為基底重掛變更」策略，不用 rebase：
+    #    fetch 後 git reset --soft origin/main 把 HEAD 對齊遠端、本次抓到的
+    #    變更全數保留在暫存區，再 commit+push。不管雲端備援（Actions cron）
+    #    有沒有先推過，都不會發生 rebase 衝突或 non-fast-forward 拒絕；
+    #    若遠端已含相同資料，暫存 diff 為空自然跳過。
+    #    （2026-07-21 事故教訓：pull --rebase 放在檔案已修改之後會被
+    #    「unstaged changes」擋下，導致 push 失敗、資料卡本機。）
     log("START: git 同步與推送")
-    pull = git(["pull", "--rebase", "origin", "main"])
-    log(f"  pull --rebase: {pull.stdout.strip().splitlines()[-1] if pull.stdout.strip() else pull.stderr.strip()[-120:]}")
+    fetch = git(["fetch", "origin"])
+    if fetch.returncode != 0:
+        log(f"  fetch 失敗: {fetch.stderr.strip()[-120:]}")
 
     git(["add", "data/sector_indices.csv", "data/tpex_indices.csv",
          "data/stock_prices.csv", "data/stock_rankings.json",
          "data/raw", "data/raw_tpex", "data/raw_stocks"])
+    reset = git(["reset", "--soft", "origin/main"])
+    if reset.returncode != 0:
+        log(f"  reset --soft 失敗: {reset.stderr.strip()[-120:]}")
+        return 1
     # 只看「已暫存」的變更——工作區的未追蹤檔（logs/ 等）不算數，
     # 否則非交易日也會誤判有變更、誤報「已推送」。
     staged = git(["diff", "--cached", "--quiet"])
