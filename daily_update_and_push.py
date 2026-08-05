@@ -73,13 +73,23 @@ def main() -> int:
     if fetch.returncode != 0:
         log(f"  fetch 失敗: {fetch.stderr.strip()[-120:]}")
 
+    # reset --mixed（不是 --soft！）：HEAD 與暫存區都對齊遠端，工作區保留本次抓的
+    # 新資料。若用 --soft，暫存區會留著「舊基底的完整檔案樹」，commit 時會把遠端
+    # 較新的檔案一起覆寫回舊版——2026-07-21 就是這樣把 cron 更新的全球資料
+    # 從 7/20 回退成 7/17。
+    reset = git(["reset", "--mixed", "origin/main"])
+    if reset.returncode != 0:
+        log(f"  reset --mixed 失敗: {reset.stderr.strip()[-120:]}")
+        return 1
+
+    # 雲端 Actions 負責的檔案（全球資產／市場輪動）本機不產生也不該提交：
+    # 明確還原成遠端版本，杜絕本機殘留舊檔被夾帶進 commit。
+    git(["checkout", "origin/main", "--", "data/global_prices.csv"])
+
+    # 只暫存本機負責產生的檔案
     git(["add", "data/sector_indices.csv", "data/tpex_indices.csv",
          "data/stock_prices.csv", "data/stock_rankings.json",
-         "data/raw", "data/raw_tpex", "data/raw_stocks"])
-    reset = git(["reset", "--soft", "origin/main"])
-    if reset.returncode != 0:
-        log(f"  reset --soft 失敗: {reset.stderr.strip()[-120:]}")
-        return 1
+         "data/raw", "data/raw_tpex"])
     # 只看「已暫存」的變更——工作區的未追蹤檔（logs/ 等）不算數，
     # 否則非交易日也會誤判有變更、誤報「已推送」。
     staged = git(["diff", "--cached", "--quiet"])
